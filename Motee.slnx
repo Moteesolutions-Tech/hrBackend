@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Motee.Api/Motee.Api.csproj" />
+    <Project Path="src/Motee.Application/Motee.Application.csproj" />
+    <Project Path="src/Motee.Domain/Motee.Domain.csproj" />
+    <Project Path="src/Motee.Infrastructure/Motee.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Motee.Tests/Motee.Tests.csproj" />
+  </Folder>
+</Solution>
