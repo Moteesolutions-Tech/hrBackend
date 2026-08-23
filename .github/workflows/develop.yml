@@ -86,29 +86,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
+      # Quoted heredoc delimiter, so the runner's shell leaves $(...) and $VAR alone
+      # and they reach the instance intact. GitHub still substitutes ${{ }}, which
+      # happens before the shell ever sees this.
       - name: Create SSM Parameters
         run: |
-          cat >/tmp/ssm-parameters.json <<EOF
+          cat >/tmp/ssm-parameters.json <<'EOF'
           {
             "commands": [
-              "echo Starting deployment...",
+              "set -e",
               "cd ${{ env.DEPLOY_PATH }}",
-              "pwd",
-              "echo Logging into Amazon ECR...",
+              "echo 'Logging into Amazon ECR...'",
               "aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com",
-              "echo Pulling latest Docker images...",
-              "docker-compose pull || docker compose pull",
-              "echo Recreating containers...",
-              "docker-compose up -d --force-recreate || docker compose up -d --force-recreate",
-              "echo Waiting for containers...",
-              "sleep 15",
-              "echo Checking container status...",
-              "docker-compose ps || docker compose ps",
-              "echo Verifying containers are healthy...",
-              "docker compose ps | grep -q Up || (docker compose ps --all && docker inspect --format '{{.Name}} exited {{.State.ExitCode}}: {{.State.Error}}' $(docker compose ps -aq) && echo 'Container output is in CloudWatch: log group /ec2/dev/backend/hr' && exit 1)",
-              "echo Cleaning unused Docker images...",
+              "echo 'Pulling latest image...'",
+              "docker compose pull",
+              "echo 'Recreating container...'",
+              "docker compose up -d --force-recreate",
+              "echo 'Waiting for the API to answer /health...'",
+              "for i in $(seq 1 24); do if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then echo 'API is responding.'; break; fi; sleep 5; done",
+              "if ! curl -fsS http://localhost:8080/health >/dev/null 2>&1; then echo 'API did not come up within two minutes.'; docker compose ps -a; docker inspect -f 'exit={{.State.ExitCode}} error={{.State.Error}}' backend-api 2>/dev/null || true; echo 'Container output is in CloudWatch: log group /ec2/dev/backend/hr'; exit 1; fi",
               "docker image prune -af --filter until=24h",
-              "echo Deployment commands completed."
+              "echo 'Deployment complete.'"
             ]
           }
           EOF
