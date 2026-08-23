@@ -1,0 +1,98 @@
+using Motee.Domain.Identity;
+
+namespace Motee.Domain.Authorization;
+
+// Generated from the frontend's permissions/modules.ts and permissions/seeds.ts.
+// The matrix is derived the same way the UI derives it: a module grants access to a
+// listed role, and a role's action set is uniform across every module it can reach.
+public static class ModuleCatalogue
+{
+    public static readonly IReadOnlyList<string> All =
+    [
+        "workspace.workflows",
+        "submissions.queue",
+        "submissions.workflows",
+        "organization.company",
+        "organization.departments",
+        "organization.structure",
+        "organization.roles",
+        "organization.headcount",
+        "organization.employees",
+        "organization.employment-types",
+        "organization.eor",
+        "organization.employee-checklist",
+        "employee.medical",
+        "employee.disciplinary",
+        "employee.grievances",
+        "employee.notes",
+        "talent.workforce-requests",
+        "talent.recruitment",
+        "talent.onboarding",
+        "talent.offboarding",
+        "talent.performance",
+        "talent.training",
+        "time-payroll.attendance",
+        "time-payroll.leave",
+        "operations.assets",
+        "operations.documents",
+        "operations.contracts",
+        "operations.reports",
+        "operations.workforce",
+        "workspace.announcements",
+        "workspace.kudos",
+        "workspace.suggestions",
+        "workspace.surveys",
+        "workspace.helpdesk",
+        "workspace.knowledge",
+        "workspace.community",
+        "admin.access-levels",
+        "admin.audit-trail",
+        "admin.grievance",
+        "admin.settings",
+    ];
+
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<Role>> AccessByModule =
+        new Dictionary<string, IReadOnlyList<Role>>
+        {
+            ["workspace.workflows"] = [Role.SuperAdmin, Role.HrAdmin],
+            ["submissions.queue"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Executive, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["submissions.workflows"] = [Role.SuperAdmin, Role.HrAdmin],
+            ["organization.company"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["organization.departments"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["organization.structure"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
+            ["organization.roles"] = [Role.SuperAdmin, Role.HrAdmin, Role.Recruiter, Role.Auditor, Role.ReadOnly],
+            ["organization.headcount"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
+            ["organization.employees"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Recruiter, Role.Auditor, Role.ReadOnly],
+            ["organization.employment-types"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["organization.eor"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Auditor, Role.ReadOnly],
+            ["organization.employee-checklist"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["employee.medical"] = [Role.SuperAdmin, Role.HrAdmin],
+            ["employee.disciplinary"] = [Role.SuperAdmin, Role.HrAdmin],
+            ["employee.grievances"] = [Role.SuperAdmin, Role.HrAdmin],
+            ["employee.notes"] = [Role.SuperAdmin, Role.HrAdmin],
+            ["talent.workforce-requests"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Executive, Role.Finance, Role.Auditor, Role.ReadOnly],
+            ["talent.recruitment"] = [Role.SuperAdmin, Role.HrAdmin, Role.Recruiter, Role.Auditor, Role.ReadOnly],
+            ["talent.onboarding"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Auditor, Role.ReadOnly],
+            ["talent.offboarding"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["talent.performance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
+            ["talent.training"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["time-payroll.attendance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Finance, Role.Auditor, Role.ReadOnly],
+            ["time-payroll.leave"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
+            ["operations.assets"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["operations.documents"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["operations.contracts"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["operations.reports"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Executive, Role.Auditor, Role.ReadOnly],
+            ["operations.workforce"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
+            ["workspace.announcements"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["workspace.kudos"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["workspace.suggestions"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["workspace.surveys"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["workspace.helpdesk"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["workspace.knowledge"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["workspace.community"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["admin.access-levels"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["admin.audit-trail"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor],
+            ["admin.grievance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["admin.settings"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin],
+        };
+}

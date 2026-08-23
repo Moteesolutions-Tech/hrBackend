@@ -1,0 +1,25 @@
+# Build output. Copying it in is slow and, worse, a stale obj/ from the host carries
+# absolute paths and a different runtime identifier, which breaks the restore inside
+# the image in ways that read as nonsense.
+**/bin/
+**/obj/
+
+# Never build a secret into an image. appsettings.json is git-ignored and holds the
+# real connection string and signing key; deployed environments pass those as
+# environment variables instead.
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.Example.json
+
+.git/
+.gitignore
+.vs/
+.vscode/
+.idea/
+
+# Applied by hand against the database, not shipped in the API image.
+*.sql
+todo-in-production/
+
+**/*.user
+**/.DS_Store

@@ -1,0 +1,47 @@
+root = true
+
+[*]
+indent_style = space
+insert_final_newline = true
+charset = utf-8
+
+[*.{cs,csproj,props,targets}]
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.cs]
+
+#### Explicit types only — `var` is banned ####
+# Two layers, because neither alone is sufficient:
+#
+#  1. IDE0007 drives the red squiggle and the "use explicit type" quick-fix
+#     while you type. It is IDE-only — it does NOT fire in `dotnet build` or
+#     `dotnet format`, so it cannot gate CI.
+#  2. Roslynator RCS1008/1009/1012 are real build-time analyzers and are what
+#     actually fails the build. Package is referenced in Directory.Build.props.
+#
+# Keep both in sync: relaxing one without the other gives editor/CI disagreement.
+
+# --- Layer 1: editor experience ---
+csharp_style_var_for_built_in_types = false
+csharp_style_var_when_type_is_apparent = false
+csharp_style_var_elsewhere = false
+dotnet_diagnostic.IDE0007.severity = error
+# The inverse rule ("use var instead of explicit type") must never fire.
+dotnet_diagnostic.IDE0008.severity = none
+
+# --- Layer 2: build enforcement (this is what breaks the build) ---
+# RCS1264 is the current unified rule; `never` means explicit types everywhere.
+# It supersedes the older RCS1008/1009/1012 trio, which now report as deprecated.
+roslynator_use_var = never
+dotnet_diagnostic.RCS1264.severity = error
+
+# Superseded predecessors — off, so their deprecation notices don't add noise.
+dotnet_diagnostic.RCS1008.severity = none
+dotnet_diagnostic.RCS1009.severity = none
+dotnet_diagnostic.RCS1012.severity = none
+# Roslynator's opposite-direction rules must stay off.
+dotnet_diagnostic.RCS1176.severity = none
+dotnet_diagnostic.RCS1177.severity = none
