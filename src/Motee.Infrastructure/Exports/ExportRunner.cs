@@ -6,6 +6,7 @@ using Motee.Application.Auth;
 using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Exports;
+using Motee.Application.Notifications;
 using Motee.Application.Tenancy;
 using Motee.Domain.Exports;
 using Motee.Infrastructure.Persistence;
@@ -18,7 +19,7 @@ internal sealed class ExportRunner(
     MoteeDbContext dbContext,
     IEmployeeService employees,
     IFileStorage storage,
-    IEmailQueue emailQueue,
+    IEmailDispatcher email,
     TimeProvider timeProvider,
     ILogger<ExportRunner> logger) : IExportRunner
 {
@@ -152,17 +153,14 @@ internal sealed class ExportRunner(
         string url = await storage.GetDownloadUrlAsync(
             job.FileKey!, ExportPolicy.LinkLifetime, job.FileName, cancellationToken);
 
-        emailQueue.Enqueue(new EmailMessage
+        email.Send(job.RequestedByEmail, new ExportReadyEmail
         {
-            To = job.RequestedByEmail,
-            Subject = "Your employee export is ready",
-            Body =
-                $"Your export of {job.RowCount:N0} employees is ready.\n\n"
-                + $"{url}\n\n"
-                + $"This link works for {ExportPolicy.LinkLifetime.TotalHours:0} hours. "
-                + "It opens the file directly, so treat it like the file itself.\n"
-                + $"After that, request the export again — the data stays available "
-                + $"until {job.ExpiresAt:d MMMM yyyy}.",
+            RowCount = job.RowCount,
+            DownloadUrl = url,
+            LinkLifetime = ExportPolicy.LinkLifetime,
+
+            // Set alongside Status = Completed, and this only runs for a completed job.
+            AvailableUntil = job.ExpiresAt!.Value,
         });
     }
 }

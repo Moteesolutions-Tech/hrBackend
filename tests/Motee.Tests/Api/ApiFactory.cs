@@ -26,6 +26,11 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
     // session tests, and what these exercise is what happens after it.
     public Guid? ActingAs { get; set; }
 
+    // Needed by anything the tenant query filter touches. /auth/me resolves the user
+    // directly and works without it; every tenant-scoped table does not, and its
+    // absence presents as a 404 rather than as a missing claim.
+    public Guid? ActingTenant { get; set; }
+
     // Anything logged at Error, so an opaque 500 can say what actually threw.
     public List<string> Failures { get; } = [];
 
@@ -47,6 +52,13 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
         // Nothing here should reach S3, and an unset bucket keeps the AWS client from
         // being constructed at all.
         builder.UseSetting("Storage:Bucket", string.Empty);
+
+        // The host is Development so the pipeline behaves normally, but the API's own
+        // appsettings.json turns App:Debug on - which would leave every test running
+        // with the developer shortcuts enabled and hide exactly the exposures these
+        // are here to catch. Off, matching what PostgresFixture does for the same
+        // reason.
+        builder.UseSetting("App:Debug", "false");
 
         // The envelope deliberately hides exception detail from callers, which is right
         // in production and useless in a test. Kept here so a 500 can be explained.
@@ -114,11 +126,16 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
 
-            // Only the subject. Deliberately no role claim: the point of these tests
-            // is that nothing downstream still derives permissions from one.
-            ClaimsPrincipal principal = new(new ClaimsIdentity(
-                [new Claim(MoteeClaimTypes.Subject, userId.ToString())],
-                Name));
+            // Deliberately no role claim: the point of these tests is that nothing
+            // downstream still derives permissions from one.
+            List<Claim> claims = [new Claim(MoteeClaimTypes.Subject, userId.ToString())];
+
+            if (factory.ActingTenant is Guid tenantId)
+            {
+                claims.Add(new Claim(MoteeClaimTypes.TenantId, tenantId.ToString()));
+            }
+
+            ClaimsPrincipal principal = new(new ClaimsIdentity(claims, Name));
 
             return Task.FromResult(AuthenticateResult.Success(
                 new AuthenticationTicket(principal, Name)));

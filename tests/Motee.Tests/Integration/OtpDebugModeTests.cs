@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Motee.Application.Auth;
+using Motee.Application.Notifications;
 using Motee.Domain.Auth;
 
 namespace Motee.Tests.Integration;
@@ -75,6 +76,11 @@ public class OtpDebugModeTests(PostgresFixture fixture)
     private static IOtpService Otp(ServiceProvider provider) =>
         provider.CreateScope().ServiceProvider.GetRequiredService<IOtpService>();
 
+    // The fixed code is compiled out of Release builds, so the tests that exercise it
+    // only exist where it does. The gates below — Production, Staging, and the flag
+    // being off — are the invariants that must hold in every configuration, so those
+    // stay outside the guard and run either way.
+#if DEBUG
     [SkippableFact]
     public async Task TheFixedCodeVerifiesWhenDebugIsOn()
     {
@@ -136,6 +142,7 @@ public class OtpDebugModeTests(PostgresFixture fixture)
             OtpAttemptOutcome.AlreadyUsed,
             await Otp(owned).VerifyAsync(userId, OtpPurpose.EmailVerification, FixedCode));
     }
+#endif
 
     [SkippableFact]
     public async Task DebugIsOffByDefault()
@@ -162,6 +169,25 @@ public class OtpDebugModeTests(PostgresFixture fixture)
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         (Guid userId, RecordingEmailSender mail, ServiceProvider provider) =
             await ArrangeAsync(appDebug: true, Environments.Production);
+        await using ServiceProvider owned = provider;
+
+        await Otp(owned).IssueAsync(userId, OtpPurpose.EmailVerification);
+
+        Assert.Single(mail.Sent);
+        Assert.Equal(
+            OtpAttemptOutcome.IncorrectCode,
+            await Otp(owned).VerifyAsync(userId, OtpPurpose.EmailVerification, FixedCode));
+    }
+
+    // Staging is a deployed environment reachable from the internet, so it runs the
+    // real token flow like production. It used to accept the fixed code, which meant
+    // 123456 signed in as anyone who could reach the host.
+    [SkippableFact]
+    public async Task DebugIsIgnoredInStagingEvenWhenTheFlagIsSet()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid userId, RecordingEmailSender mail, ServiceProvider provider) =
+            await ArrangeAsync(appDebug: true, Environments.Staging);
         await using ServiceProvider owned = provider;
 
         await Otp(owned).IssueAsync(userId, OtpPurpose.EmailVerification);

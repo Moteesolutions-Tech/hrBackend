@@ -2,7 +2,7 @@ using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Motee.Application.Auth;
+using Motee.Application.Notifications;
 using Motee.Infrastructure.Notifications;
 
 namespace Motee.Api.Jobs;

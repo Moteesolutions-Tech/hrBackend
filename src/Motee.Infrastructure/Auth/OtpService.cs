@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Motee.Application.Auth;
+using Motee.Application.Common;
+using Motee.Application.Notifications;
 using Motee.Domain.Auth;
+using Motee.Infrastructure.Common;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
@@ -11,8 +14,8 @@ namespace Motee.Infrastructure.Auth;
 internal sealed class OtpService(
     MoteeDbContext dbContext,
     UserManager<ApplicationUser> userManager,
-    IEmailQueue emailQueue,
-    OtpDebugMode debugMode,
+    IEmailDispatcher email,
+    IDebugMode debugMode,
     ILogger<OtpService> logger,
     TimeProvider timeProvider) : IOtpService
 {
@@ -39,7 +42,7 @@ internal sealed class OtpService(
         }
 
         string code = debugMode.Enabled
-            ? OtpDebugMode.FixedCode
+            ? DebugMode.FixedOtpCode
             : await userManager.GenerateUserTokenAsync(
                 user, TokenOptions.DefaultEmailProvider, TokenPurpose(purpose));
 
@@ -78,12 +81,11 @@ internal sealed class OtpService(
             return new OtpIssueResult { Sent = true };
         }
 
-        emailQueue.Enqueue(new EmailMessage
+        email.Send(user.Email!, new OtpCodeEmail
         {
-            To = user.Email!,
-            Subject = SubjectFor(purpose),
-            Body = $"Your Motee verification code is {code}. It expires in "
-                + $"{OtpPolicy.Lifetime.TotalMinutes:0} minutes.",
+            Code = code,
+            Lifetime = OtpPolicy.Lifetime,
+            Purpose = purpose,
         });
 
         return new OtpIssueResult { Sent = true };
@@ -110,7 +112,7 @@ internal sealed class OtpService(
         // Only the comparison changes in debug mode; expiry, the attempt budget and
         // single-use all still apply, so the flow behaves as it will in production.
         bool codeMatched = debugMode.Enabled
-            ? string.Equals(code, OtpDebugMode.FixedCode, StringComparison.Ordinal)
+            ? string.Equals(code, DebugMode.FixedOtpCode, StringComparison.Ordinal)
             : await userManager.VerifyUserTokenAsync(
                 user, TokenOptions.DefaultEmailProvider, TokenPurpose(purpose), code);
 
@@ -163,10 +165,4 @@ internal sealed class OtpService(
         _ => throw new ArgumentOutOfRangeException(nameof(purpose)),
     };
 
-    private static string SubjectFor(OtpPurpose purpose) => purpose switch
-    {
-        OtpPurpose.EmailVerification => "Verify your Motee account",
-        OtpPurpose.PasswordReset => "Reset your Motee password",
-        _ => throw new ArgumentOutOfRangeException(nameof(purpose)),
-    };
 }

@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
+using Motee.Application.Notifications;
 using Motee.Domain.Auth;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
@@ -21,7 +22,7 @@ public class OtpServiceTests(PostgresFixture fixture)
             return Task.CompletedTask;
         }
 
-        public string LastCode => Regex.Match(Sent[^1].Body, @"\b\d{6}\b").Value;
+        public string LastCode => Regex.Match(Sent[^1].TextBody, @"\b\d{6}\b").Value;
     }
 
     private static RegisterTenantRequest Request(string email = "ada@acme.com") => new()
@@ -64,7 +65,7 @@ public class OtpServiceTests(PostgresFixture fixture)
         Assert.True(result.Sent);
         Assert.Single(mail.Sent);
         Assert.Equal("ada@acme.com", mail.Sent[0].To);
-        Assert.Matches(@"\b\d{6}\b", mail.Sent[0].Body);
+        Assert.Matches(@"\b\d{6}\b", mail.Sent[0].TextBody);
 
         await using MoteeDbContext context = fixture.CreateContext();
         OtpChallengeRecord challenge = await context.OtpChallenges

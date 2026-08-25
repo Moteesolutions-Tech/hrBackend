@@ -6,9 +6,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.AspNetCore.Identity;
 using Motee.Application.Auth;
 using Motee.Application.Assets;
+using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Exports;
 using Motee.Application.Files;
+using Motee.Application.Notifications;
 using Motee.Application.Organisation;
 using Motee.Application.Tenancy;
 using Motee.Infrastructure.Common;
@@ -20,6 +22,7 @@ using Motee.Infrastructure.Organisation;
 using Motee.Infrastructure.Auth;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Notifications;
+using Motee.Infrastructure.Notifications.Templates;
 using Motee.Infrastructure.Persistence;
 using Motee.Infrastructure.Tenancy;
 
@@ -74,9 +77,10 @@ public static class DependencyInjection
         services.TryAddScoped<IExportQueue, InlineExportQueue>();
         services.AddScoped<ITenantSetupService, TenantSetupService>();
         services.TryAddSingleton(TimeProvider.System);
-        services.AddScoped<OtpDebugMode>();
+        services.AddScoped<IDebugMode, DebugMode>();
 
         AddEmailProvider(services, configuration);
+        AddEmailTemplates(services);
 
         // Hangfire is hosted by the API; anything else (tests, tooling) sends inline.
         services.TryAddScoped<IEmailQueue, InlineEmailQueue>();
@@ -179,6 +183,18 @@ public static class DependencyInjection
                 ForcePathStyle = true,
                 AuthenticationRegion = region,
             }));
+    }
+
+    // The list of every email the system can send. Adding one is a model record, a
+    // template class, and a line here - no business service changes, and nothing else
+    // in the codebase has to know the wording exists.
+    private static void AddEmailTemplates(IServiceCollection services)
+    {
+        services.AddScoped<IEmailDispatcher, EmailDispatcher>();
+
+        services.AddScoped<IEmailTemplate<OtpCodeEmail>, OtpCodeEmailTemplate>();
+        services.AddScoped<IEmailTemplate<ExportReadyEmail>, ExportReadyEmailTemplate>();
+        services.AddScoped<IEmailTemplate<EmployeeInviteEmail>, EmployeeInviteEmailTemplate>();
     }
 
     private static void AddEmailProvider(IServiceCollection services, IConfiguration configuration)
