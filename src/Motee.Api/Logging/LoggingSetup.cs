@@ -37,8 +37,42 @@ internal static class LoggingSetup
                 diagnosticContext.Set("UserAgent", httpContext.Request.Headers.UserAgent.ToString());
                 diagnosticContext.Set("TenantId", httpContext.User.FindFirst("tenant_id")?.Value);
             };
+
+            options.GetLevel = (httpContext, _, exception) =>
+            {
+                if (exception is not null || httpContext.Response.StatusCode >= 500)
+                {
+                    return LogEventLevel.Error;
+                }
+
+                // 4xx still logs, at Warning. A 401 on the jobs dashboard is somebody
+                // failing to authenticate, which is exactly the traffic worth seeing.
+                if (httpContext.Response.StatusCode >= 400)
+                {
+                    return LogEventLevel.Warning;
+                }
+
+                // Verbose is below the configured minimum, so these are dropped rather
+                // than written. Only successful requests qualify - a failing health
+                // check or a broken dashboard still appears above.
+                return IsRoutine(httpContext.Request.Path)
+                    ? LogEventLevel.Verbose
+                    : LogEventLevel.Information;
+            };
         });
 
         return app;
     }
+
+    // Traffic that says nothing when it succeeds, and arrives constantly.
+    //
+    // The jobs dashboard polls /jobs/stats every two seconds for as long as a tab is
+    // open, and the container health check runs every thirty. Left at Information they
+    // are the overwhelming majority of the log, which costs money to ingest and buries
+    // the lines that matter - the entire point of having logs.
+    private static bool IsRoutine(PathString path) =>
+        path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/jobs", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/swagger", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/openapi", StringComparison.OrdinalIgnoreCase);
 }

@@ -99,9 +99,17 @@ if (swaggerEnabled)
 // whoever is debugging after the wrong problem entirely.
 app.UseCors(CorsSetup.PolicyName);
 
-// Skipped in Development: the http launch profile has no https port, so the
-// redirect middleware warns on every request.
-if (!app.Environment.IsDevelopment())
+// Skipped in Development, where the http launch profile has no https port.
+//
+// Also skipped behind a trusted proxy. There, nginx terminates TLS and already
+// redirects http to https, and the container itself is only reachable on loopback - so
+// this middleware can never protect anything, and it has two costs: it warns "failed to
+// determine the https port" on every single request, and if a port were configured it
+// would redirect the container's own health check to a port nothing listens on.
+bool behindProxy = builder.Configuration
+    .GetSection("Network:TrustedProxies").Get<string[]>() is { Length: > 0 };
+
+if (!app.Environment.IsDevelopment() && !behindProxy)
 {
     app.UseHttpsRedirection();
 }

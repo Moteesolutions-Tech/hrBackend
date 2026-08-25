@@ -35,6 +35,17 @@ RUN dotnet publish src/Motee.Api/Motee.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
+# Npgsql probes for GSSAPI during authentication negotiation. The runtime image does not
+# ship the Kerberos library, so every start logs "Cannot load library
+# libgssapi_krb5.so.2" before the logger is even configured. Connections work regardless
+# - it falls back - but the line looks like a failure at exactly the moment someone is
+# checking whether a deploy came up cleanly. Installing it costs a few hundred KB.
+#
+# curl is here for the compose health check, which otherwise has nothing to run.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app ./
 
 # The base image ships a non-root user. Running as root inside a container is a
