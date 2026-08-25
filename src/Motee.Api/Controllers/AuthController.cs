@@ -28,6 +28,7 @@ public class AuthController(
     ICurrentTenant currentTenant,
     ITenantRepository tenants,
     IRequestContext requestContext,
+    IUserLookup users,
     IValidator<RegisterTenantRequest> registerValidator) : ApiControllerBase
 {
     [HttpPost("register")]
@@ -54,21 +55,25 @@ public class AuthController(
                 string.Join(" ", result.Errors));
         }
 
-        // Issued after the transaction commits — sending mail inside it would hold
-        // the transaction open across a network call.
-        await otp.IssueAsync(result.UserId, OtpPurpose.EmailVerification, cancellationToken);
+        // Nothing was created, so there is no account to send a code for. The owner has
+        // already been emailed to say the address is in use; from here the two paths
+        // must be indistinguishable to the caller.
+        if (!result.AlreadyRegistered)
+        {
+            // Issued after the transaction commits — sending mail inside it would hold
+            // the transaction open across a network call.
+            await otp.IssueAsync(result.UserId, OtpPurpose.EmailVerification, cancellationToken);
+        }
 
+        // One response, one message, both cases. "Account created" would have given the
+        // answer away in the wording even with an identical body.
         return CreatedEnvelope(
             new RegisterResponse
             {
-                UserId = result.UserId,
-                TenantId = result.TenantId,
-                TenantSlug = result.TenantSlug!,
-                Email = result.Email!,
-                CountryCode = result.CountryCode!,
+                Email = request.Email.Trim(),
                 VerificationRequired = true,
             },
-            "Account created. Check your email for a 6-digit code.");
+            "Check your email for a 6-digit code.");
     }
 
     [HttpPost("verify-otp")]
@@ -77,8 +82,19 @@ public class AuthController(
         VerifyOtpApiRequest request,
         CancellationToken cancellationToken)
     {
+        Guid? userId = await users.FindIdByEmailAsync(request.Email, cancellationToken);
+
+        // An unknown address answers exactly as a known one with a wrong code does.
+        // Anything else would turn this endpoint into the enumeration oracle that
+        // register no longer is.
+        if (userId is null)
+        {
+            return Failure<LoginResponse>(
+                MoteeStatusCodes.OtpIncorrect, "That code is not correct.");
+        }
+
         OtpAttemptOutcome outcome = await otp.VerifyAsync(
-            request.UserId, OtpPurpose.EmailVerification, request.Code, cancellationToken);
+            userId.Value, OtpPurpose.EmailVerification, request.Code, cancellationToken);
 
         if (outcome == OtpAttemptOutcome.Verified)
         {
@@ -86,7 +102,7 @@ public class AuthController(
             // and the password was set moments earlier during sign-up, so sending the
             // user back to a login screen asks them to re-prove what is already known.
             IssuedSession? session = await sessionIssuer.IssueAsync(
-                request.UserId, requestContext.IpAddress, cancellationToken);
+                userId.Value, requestContext.IpAddress, cancellationToken);
 
             if (session is null)
             {
@@ -128,8 +144,17 @@ public class AuthController(
         ResendOtpApiRequest request,
         CancellationToken cancellationToken)
     {
+        Guid? userId = await users.FindIdByEmailAsync(request.Email, cancellationToken);
+
+        // An unknown address gets the same answer as a known one. Saying "no such
+        // account" here would hand back exactly what register refuses to disclose.
+        if (userId is null)
+        {
+            return Ok<object?>(null, "A new code is on its way.");
+        }
+
         OtpIssueResult result = await otp.IssueAsync(
-            request.UserId, OtpPurpose.EmailVerification, cancellationToken);
+            userId.Value, OtpPurpose.EmailVerification, cancellationToken);
 
         if (!result.Sent)
         {

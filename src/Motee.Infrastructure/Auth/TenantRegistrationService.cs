@@ -2,12 +2,14 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Motee.Application.Auth;
+using Motee.Application.Notifications;
 using Motee.Application.Tenancy;
 using Motee.Domain.Common;
 using Motee.Domain.Authorization;
 using Motee.Infrastructure.Authorization;
 using Motee.Domain.Identity;
 using Motee.Domain.Tenants;
+using Motee.Infrastructure.Common;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
@@ -18,6 +20,8 @@ internal sealed class TenantRegistrationService(
     UserManager<ApplicationUser> userManager,
     AccessLevelSeeder accessLevels,
     TimeProvider timeProvider,
+    IEmailDispatcher email,
+    AppLinks links,
     ITenantSlugGenerator slugGenerator) : ITenantRegistrationService
 {
     public async Task<RegisterTenantResult> RegisterAsync(
@@ -27,6 +31,31 @@ internal sealed class TenantRegistrationService(
         if (!CountryCode.TryParse(request.CountryCode, out CountryCode countryCode))
         {
             return RegisterTenantResult.Failed($"Unsupported country '{request.CountryCode}'.");
+        }
+
+        string emailAddress = request.Email.Trim();
+
+        // Checked before anything is written, so an address that already has an account
+        // produces no tenant, no slug and no wasted sequence values. The duplicate
+        // branch further down stays as a backstop for two concurrent registrations of
+        // the same address, which this check cannot see.
+        ApplicationUser? existing = await userManager.FindByEmailAsync(emailAddress);
+
+        if (existing is not null)
+        {
+            // Registering a new account hashes a password, which takes a few hundred
+            // milliseconds. Skipping that here would make the duplicate path measurably
+            // faster - and a stopwatch would then answer the question the identical
+            // response refuses to. The result is deliberately discarded.
+            _ = userManager.PasswordHasher.HashPassword(existing, request.Password);
+
+            email.Send(existing.Email!, new AccountAlreadyExistsEmail
+            {
+                SignInUrl = links.SignIn,
+                ForgotPasswordUrl = links.ForgotPassword,
+            });
+
+            return RegisterTenantResult.AlreadyRegisteredTo(emailAddress);
         }
 
         // Tenant and user commit together. A tenant left behind by a failed sign-up

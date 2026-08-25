@@ -2,16 +2,22 @@ using Motee.Domain.Authorization;
 
 namespace Motee.Api.Contracts.Auth;
 
+// Keyed on email rather than a user id, because registration can no longer hand one
+// back: it answers identically whether or not the address is known, and a user id only
+// exists in one of those cases.
+//
+// The id was acting as a second secret, so the six digits now stand alone - which the
+// OtpPolicy budget of five attempts inside five minutes is what makes sound.
 public sealed record VerifyOtpApiRequest
 {
-    public required Guid UserId { get; init; }
+    public required string Email { get; init; }
 
     public required string Code { get; init; }
 }
 
 public sealed record ResendOtpApiRequest
 {
-    public required Guid UserId { get; init; }
+    public required string Email { get; init; }
 }
 
 public sealed record LoginApiRequest
@@ -21,17 +27,15 @@ public sealed record LoginApiRequest
     public required string Password { get; init; }
 }
 
+// Everything here exists in both outcomes - a new account, and an address that already
+// had one. UserId, TenantId and TenantSlug used to be here and had to go: they only
+// exist when something was created, so returning them announced which case the caller
+// had hit. They arrive from verify-otp instead, once the code proves the mailbox.
+//
+// Nothing may be added here that is knowable only in one case.
 public sealed record RegisterResponse
 {
-    public required Guid UserId { get; init; }
-
-    public required Guid TenantId { get; init; }
-
-    public required string TenantSlug { get; init; }
-
     public required string Email { get; init; }
-
-    public required string CountryCode { get; init; }
 
     public required bool VerificationRequired { get; init; }
 }
