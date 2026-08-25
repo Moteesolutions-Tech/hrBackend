@@ -15,4 +15,8 @@ internal sealed class AppLinks(IConfiguration configuration)
             + "app, for example https://app.motee.com.");
 
     public string Join(string token) => $"{BaseUrl}/join/{token}";
+
+    public string SignIn => $"{BaseUrl}/login";
+
+    public string ForgotPassword => $"{BaseUrl}/forgot-password";
 }

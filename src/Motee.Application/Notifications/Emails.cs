@@ -20,6 +20,22 @@ public sealed record OtpCodeEmail
     public required OtpPurpose Purpose { get; init; }
 }
 
+// Sent when someone tries to register with an address that already has an account.
+//
+// This exists because the registration endpoint must answer identically whether or not
+// the address is known - otherwise anyone can test a list of addresses and learn which
+// belong to Motee customers. The response says "check your email" either way, and the
+// mailbox is where the two cases diverge, because only the real owner can read it.
+//
+// It is also a security notice in its own right: if the recipient did not attempt this,
+// somebody else is typing their address into sign-up forms.
+public sealed record AccountAlreadyExistsEmail
+{
+    public required string SignInUrl { get; init; }
+
+    public required string ForgotPasswordUrl { get; init; }
+}
+
 // A finished CSV export. The link is pre-signed and bypasses the app, so the wording has
 // to say plainly that anyone holding it can read the file.
 public sealed record ExportReadyEmail

@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Authorization.IAccessLevelService, Authorization.AccessLevelService>();
         services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
         services.AddScoped<IOtpService, OtpService>();
+        services.AddScoped<IUserLookup, UserLookup>();
         services.AddScoped<IAccessTokenService, AccessTokenService>();
         services.AddScoped<ILoginService, LoginService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
@@ -193,6 +194,8 @@ public static class DependencyInjection
         services.AddScoped<IEmailDispatcher, EmailDispatcher>();
 
         services.AddScoped<IEmailTemplate<OtpCodeEmail>, OtpCodeEmailTemplate>();
+        services.AddScoped<
+            IEmailTemplate<AccountAlreadyExistsEmail>, AccountAlreadyExistsEmailTemplate>();
         services.AddScoped<IEmailTemplate<ExportReadyEmail>, ExportReadyEmailTemplate>();
         services.AddScoped<IEmailTemplate<EmployeeInviteEmail>, EmployeeInviteEmailTemplate>();
     }

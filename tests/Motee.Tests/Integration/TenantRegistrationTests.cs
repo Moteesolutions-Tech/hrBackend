@@ -148,9 +148,14 @@ public class TenantRegistrationTests(PostgresFixture fixture)
     }
 
     // One address belongs to one company, so a second sign-up with the same email
-    // is refused no matter which company it names.
+    // creates nothing - no matter which company it names.
+    //
+    // It does not *fail*, though. Reporting a conflict would tell an anonymous caller
+    // which addresses hold accounts, so the second attempt is accepted and answered
+    // exactly like the first; the owner is told by email instead. AlreadyRegistered is
+    // how the caller knows not to issue a code, and is never surfaced in a response.
     [SkippableFact]
-    public async Task RefusesASecondCompanyForTheSameEmail()
+    public async Task ASecondCompanyForTheSameEmailCreatesNothing()
     {
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         await fixture.ResetAsync();
@@ -161,11 +166,29 @@ public class TenantRegistrationTests(PostgresFixture fixture)
         RegisterTenantResult second = await fixture.RegisterAsync(
             Request(companyName: "Globex Industries", email: "ada@shared.com"));
 
-        Assert.False(second.Succeeded);
+        Assert.True(second.Succeeded);
+        Assert.True(second.AlreadyRegistered);
 
         await using MoteeDbContext context = fixture.CreateContext();
 
+        // The company named in the second attempt must not exist. Creating it would
+        // leave a tenant nobody owns and quietly consume the slug.
         Assert.Single(await context.Tenants.ToListAsync());
         Assert.Single(await context.Users.ToListAsync());
+    }
+
+    // The first registration is the one that creates things, and it must not be
+    // mistaken for the duplicate path.
+    [SkippableFact]
+    public async Task AFirstRegistrationIsNotFlaggedAsAlreadyRegistered()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await fixture.ResetAsync();
+
+        RegisterTenantResult first = await fixture.RegisterAsync(Request(email: "ada@shared.com"));
+
+        Assert.True(first.Succeeded, string.Join("; ", first.Errors));
+        Assert.False(first.AlreadyRegistered);
+        Assert.NotEqual(Guid.Empty, first.UserId);
     }
 }
