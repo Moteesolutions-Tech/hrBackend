@@ -62,6 +62,24 @@ public class EmailTemplateTests
         Assert.Contains("forwarded", content.TextBody, StringComparison.OrdinalIgnoreCase);
     }
 
+    // The live value is one hour, because a presigned URL cannot outlive the temporary
+    // credentials that signed it. "1 hours" is what that change produces if nobody looks.
+    [Theory]
+    [InlineData(1, "1 hour")]
+    [InlineData(24, "24 hours")]
+    public void TheLinkLifetimeReadsAsEnglish(int hours, string expected)
+    {
+        EmailContent content = new ExportReadyEmailTemplate().Render(new ExportReadyEmail
+        {
+            RowCount = 1,
+            DownloadUrl = "https://storage.test/export.csv",
+            LinkLifetime = TimeSpan.FromHours(hours),
+            AvailableUntil = DateTimeOffset.UtcNow,
+        });
+
+        Assert.Contains($"works for {expected}", content.TextBody, StringComparison.Ordinal);
+    }
+
     private static EmailContent Invite(InvitationPurpose purpose) =>
         new EmployeeInviteEmailTemplate().Render(new EmployeeInviteEmail
         {

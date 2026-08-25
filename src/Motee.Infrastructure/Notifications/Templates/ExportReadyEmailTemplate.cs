@@ -6,7 +6,10 @@ internal sealed class ExportReadyEmailTemplate : IEmailTemplate<ExportReadyEmail
 {
     public EmailContent Render(ExportReadyEmail model)
     {
-        string hours = $"{model.LinkLifetime.TotalHours:0}";
+        // "1 hours" is the kind of detail that makes an automated email look automated.
+        int wholeHours = (int)Math.Round(model.LinkLifetime.TotalHours);
+        string hours = wholeHours == 1 ? "1 hour" : $"{wholeHours} hours";
+
         string rows = $"{model.RowCount:N0}";
         string until = $"{model.AvailableUntil:d MMMM yyyy}";
 
@@ -17,7 +20,7 @@ internal sealed class ExportReadyEmailTemplate : IEmailTemplate<ExportReadyEmail
             TextBody =
                 $"Your export of {rows} employees is ready.\n\n"
                 + $"{model.DownloadUrl}\n\n"
-                + $"This link works for {hours} hours. It opens the file directly, so "
+                + $"This link works for {hours}. It opens the file directly, so "
                 + "treat it like the file itself - anyone it is forwarded to can read "
                 + "it.\n\n"
                 + $"After that, request the export again. The data stays available "
@@ -27,7 +30,7 @@ internal sealed class ExportReadyEmailTemplate : IEmailTemplate<ExportReadyEmail
                 EmailLayout.Paragraph($"Your export of {rows} employees is ready.")
                 + EmailLayout.Button(model.DownloadUrl, "Download the file")
                 + EmailLayout.Note(
-                    $"This link works for {hours} hours and opens the file directly, so "
+                    $"This link works for {hours} and opens the file directly, so "
                     + "treat it like the file itself - anyone it is forwarded to can "
                     + "read it.")
                 + EmailLayout.Note(

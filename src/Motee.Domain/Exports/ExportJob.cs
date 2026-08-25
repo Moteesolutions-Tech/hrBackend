@@ -62,8 +62,15 @@ public static class ExportPolicy
 
     // How long the emailed link stays usable. Shorter than retention on purpose: the
     // link is unauthenticated, so anyone the email is forwarded to can open it, while
-    // asking for a fresh link needs a login. S3 signatures cannot outlive seven days.
-    public static readonly TimeSpan LinkLifetime = TimeSpan.FromHours(24);
+    // asking for a fresh link needs a login.
+    //
+    // One hour, not the seven days a signature can technically carry, because a
+    // presigned URL cannot outlive the credentials that signed it. Running under an
+    // instance or task role means temporary credentials that rotate every few hours -
+    // so a link promising 24 hours dies quietly that afternoon with an opaque
+    // AccessDenied, and the recipient has no way to know why. Better to promise an hour
+    // and mean it.
+    public static readonly TimeSpan LinkLifetime = TimeSpan.FromHours(1);
 
     public static DateTimeOffset ExpiresAt(DateTimeOffset completedAt) => completedAt.Add(Retention);
 }
