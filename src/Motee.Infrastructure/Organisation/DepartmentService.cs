@@ -37,6 +37,7 @@ internal sealed class DepartmentService(MoteeDbContext dbContext, TimeProvider t
             Code = code,
             Description = Trimmed(request.Description),
             HeadEmployeeId = request.HeadEmployeeId,
+            BusinessUnitId = request.BusinessUnitId,
             BudgetMonthly = request.BudgetMonthly,
             Status = request.Status,
             CreatedAt = timeProvider.GetUtcNow(),
@@ -76,6 +77,7 @@ internal sealed class DepartmentService(MoteeDbContext dbContext, TimeProvider t
         department.Code = code;
         department.Description = Trimmed(request.Description);
         department.HeadEmployeeId = request.HeadEmployeeId;
+        department.BusinessUnitId = request.BusinessUnitId;
         department.BudgetMonthly = request.BudgetMonthly;
         department.Status = request.Status;
         department.UpdatedAt = timeProvider.GetUtcNow();
@@ -160,6 +162,11 @@ internal sealed class DepartmentService(MoteeDbContext dbContext, TimeProvider t
             HeadInitials = dbContext.Employees
                 .Where(employee => employee.Id == department.HeadEmployeeId)
                 .Select(employee => employee.FirstName.Substring(0, 1) + employee.LastName.Substring(0, 1))
+                .FirstOrDefault(),
+            BusinessUnitId = department.BusinessUnitId,
+            BusinessUnitName = dbContext.BusinessUnits
+                .Where(unit => unit.Id == department.BusinessUnitId)
+                .Select(unit => unit.Name)
                 .FirstOrDefault(),
             BudgetMonthly = department.BudgetMonthly,
             Status = department.Status,

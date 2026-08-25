@@ -78,27 +78,40 @@ tab. Postgres itself stays bound to localhost on the instance and is never expos
 
 ## Schema
 
-Applied by hand; there is no migration runner in the pipeline and no drift detection.
+Applied by hand from a DDL dump. **There are no migrations in the repository** — the
+folder was deliberately removed once the decision was made to manage DDL directly.
+
+To produce DDL for a change, add a migration temporarily, generate the script, then
+remove it:
 
 ```bash
-dotnet ef migrations script \
+dotnet ef migrations add Change \
   --project src/Motee.Infrastructure --startup-project src/Motee.Api \
-  --idempotent --output deploy/schema.sql
+  --output-dir Persistence/Migrations
 
+dotnet ef migrations script --idempotent \
+  --project src/Motee.Infrastructure --startup-project src/Motee.Api \
+  --output deploy/schema.sql
+
+dotnet ef migrations remove \
+  --project src/Motee.Infrastructure --startup-project src/Motee.Api
+```
+
+Then apply `deploy/schema.sql` through the tunnel:
+
+```bash
 psql -h localhost -p 15432 -U motee -d motee -f deploy/schema.sql
 ```
 
-`--idempotent` guards each migration against `__EFMigrationsHistory`, so the file is safe
-to re-run and later ones apply only what is missing.
+**The gap this leaves.** Nothing detects an entity changed without matching DDL. It
+surfaces in production as `column ... does not exist` on whichever endpoint touches it
+first, with nothing saying the schema is out of date.
 
-**The gap:** nothing catches an entity changed without a migration. It surfaces in
-production as `column ... does not exist` on whichever endpoint touches it first. The
-check costs nothing and needs no database:
-
-```bash
-dotnet ef migrations has-pending-model-changes \
-  --project src/Motee.Infrastructure --startup-project src/Motee.Api
-```
+`dotnet ef migrations has-pending-model-changes` cannot help here: with no migrations
+and no snapshot it reports drift unconditionally, so it is noise rather than a signal.
+Getting a real check back means either keeping migrations in the repository, or
+committing a snapshot to diff against. Until then, schema drift is caught by a person
+remembering.
 
 ---
 

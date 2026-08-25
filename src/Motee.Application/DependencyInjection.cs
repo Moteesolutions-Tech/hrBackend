@@ -27,6 +27,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<RegisterTenantRequest>, RegisterTenantValidator>();
         services.AddScoped<IValidator<TenantSetupRequest>, TenantSetupValidator>();
         services.AddScoped<IValidator<DepartmentRequest>, DepartmentValidator>();
+        services.AddScoped<IValidator<BusinessUnitRequest>, BusinessUnitValidator>();
         services.AddScoped<IValidator<AssetRequest>, AssetValidator>();
         services.AddScoped<IValidator<EmployeeRequest>, EmployeeValidator>();
         services.AddScoped<IValidator<EmployeeImportRow>, EmployeeImportValidator>();

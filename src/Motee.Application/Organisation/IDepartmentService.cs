@@ -36,6 +36,12 @@ public sealed record DepartmentRequest
 
     public Guid? HeadEmployeeId { get; init; }
 
+    // Which business unit this department sits under. Optional — a company with no
+    // divisions leaves it null — but it is the link an access level scoped to a
+    // business unit walks to find employees, so a department left unassigned is
+    // invisible to every such level.
+    public Guid? BusinessUnitId { get; init; }
+
     public decimal? BudgetMonthly { get; init; }
 
     public DepartmentStatus Status { get; init; } = DepartmentStatus.Active;
@@ -71,6 +77,11 @@ public sealed record DepartmentDto
     public string? HeadName { get; init; }
 
     public string? HeadInitials { get; init; }
+
+    public Guid? BusinessUnitId { get; init; }
+
+    // Resolved rather than stored, so renaming a unit cannot leave a stale label here.
+    public string? BusinessUnitName { get; init; }
 
     public decimal? BudgetMonthly { get; init; }
 
