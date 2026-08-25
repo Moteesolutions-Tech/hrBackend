@@ -77,6 +77,17 @@ app.UseForwardedHeaders();
 app.UseMiddleware<RequestTracingMiddleware>();
 app.UseMoteeRequestLogging();
 
+// Payload logging, off by default outside Production being the wrong default for a
+// system holding payroll data: it writes every request and response into CloudWatch,
+// which costs per GB and keeps whatever it captured for the retention period.
+//
+// Sensitive fields are redacted either way, but the safest log is the one that was
+// never written, so this is opt-in per environment.
+if (builder.Configuration.GetValue<bool>("Logging:RequestBodies"))
+{
+    app.UseMiddleware<RequestResponseLoggingMiddleware>();
+}
+
 // Docs are served outside Production by default. Set "Swagger:Enabled" to true to
 // expose them in a deployed environment (staging), or false to force them off.
 bool swaggerEnabled = builder.Configuration.GetValue<bool?>("Swagger:Enabled")
