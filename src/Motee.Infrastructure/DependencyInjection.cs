@@ -62,6 +62,7 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ISessionIssuer, SessionIssuer>();
         services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<IBusinessUnitService, BusinessUnitService>();
         services.AddScoped<IAssetService, AssetService>();
         services.AddScoped<AvatarLinker>();
         services.AddScoped<IEmployeeService, EmployeeService>();
