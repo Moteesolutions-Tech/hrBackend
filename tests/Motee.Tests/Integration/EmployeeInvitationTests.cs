@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
+using Motee.Application.Notifications;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
 using Motee.Domain.Authorization;
@@ -123,7 +124,7 @@ public class EmployeeInvitationTests(PostgresFixture fixture)
 
         InviteResult invite = await Invites(owned).InviteAsync(Request(departmentId));
 
-        Assert.Contains($"https://app.test/join/{invite.Token}", mail.Sent.Single().Body,
+        Assert.Contains($"https://app.test/join/{invite.Token}", mail.Sent.Single().TextBody,
             StringComparison.Ordinal);
     }
 

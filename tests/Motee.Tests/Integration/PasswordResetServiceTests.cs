@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
+using Motee.Application.Notifications;
 using Motee.Domain.Auth;
 using Motee.Infrastructure.Persistence;
 
@@ -24,7 +25,7 @@ public class PasswordResetServiceTests(PostgresFixture fixture)
             return Task.CompletedTask;
         }
 
-        public string LastCode => Regex.Match(Sent[^1].Body, @"\b\d{6}\b").Value;
+        public string LastCode => Regex.Match(Sent[^1].TextBody, @"\b\d{6}\b").Value;
     }
 
     private async Task<(Guid UserId, RecordingEmailSender Mail, ServiceProvider Provider)> ArrangeAsync()

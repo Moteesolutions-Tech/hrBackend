@@ -109,9 +109,9 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         services.AddSingleton(configuration);
 
-        // OtpDebugMode needs an environment. Named Development but with App:Debug
-        // unset, so the fixed-code path stays off and tests exercise real Identity
-        // token generation and verification.
+        // DebugMode needs an environment. Named Development but with App:Debug unset,
+        // so the fixed-code path stays off and tests exercise real Identity token
+        // generation and verification.
         services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
 
         // S3 is the only storage in production code, so tests supply their own

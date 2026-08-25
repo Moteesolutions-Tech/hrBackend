@@ -225,7 +225,7 @@ public class EmployeesController(
     public async Task<IActionResult> Invite(
         InviteRequest request,
         [FromServices] IEmployeeInvitationService invitations,
-        [FromServices] IHostEnvironment environment,
+        [FromServices] IDebugMode debugMode,
         CancellationToken cancellationToken)
     {
         InviteResult result = await invitations.InviteAsync(request, cancellationToken);
@@ -240,7 +240,14 @@ public class EmployeesController(
             {
                 employee = result.Employee,
                 expiresAt = result.ExpiresAt,
-                joinToken = environment.IsProduction() ? null : result.Token,
+
+                // Development only. The mailbox round-trip is what proves the person
+                // joining controls the address; returning the raw token replaces that
+                // proof with "whoever could call this endpoint". Only token_hash is
+                // stored precisely so the raw value never has to exist outside the
+                // email, and a response body is exactly where it leaks into devtools,
+                // proxy logs and frontend error reporting.
+                joinToken = debugMode.Enabled ? result.Token : null,
             },
             "Invitation sent.");
     }
@@ -253,7 +260,7 @@ public class EmployeesController(
     public async Task<IActionResult> IssueInvitation(
         Guid id,
         [FromServices] IEmployeeInvitationService invitations,
-        [FromServices] IHostEnvironment environment,
+        [FromServices] IDebugMode debugMode,
         CancellationToken cancellationToken)
     {
         IssueInviteResult result = await invitations.IssueAsync(id, cancellationToken);
@@ -263,7 +270,7 @@ public class EmployeesController(
                 new
                 {
                     expiresAt = result.ExpiresAt,
-                    joinToken = environment.IsProduction() ? null : result.Token,
+                    joinToken = debugMode.Enabled ? result.Token : null,
                 },
                 "Invitation sent.")
             : Failure<object>(StatusFor(result.Outcome), MessageFor(result.Outcome));

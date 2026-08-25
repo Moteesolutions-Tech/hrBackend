@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Motee.Application.Auth;
+using Motee.Application.Notifications;
 
 namespace Motee.Infrastructure.Notifications;
 

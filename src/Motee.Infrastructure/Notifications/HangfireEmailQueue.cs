@@ -1,5 +1,5 @@
 using Hangfire;
-using Motee.Application.Auth;
+using Motee.Application.Notifications;
 
 namespace Motee.Infrastructure.Notifications;
 

@@ -7,6 +7,7 @@ using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Tenancy;
 using Motee.Application.Files;
+using Motee.Application.Notifications;
 using Motee.Domain.Employees;
 using Motee.Domain.Files;
 using Motee.Domain.Identity;
@@ -21,7 +22,7 @@ internal sealed class EmployeeInvitationService(
     IEmployeeService employees,
     UserManager<ApplicationUser> userManager,
     ISessionIssuer sessionIssuer,
-    IEmailQueue emailQueue,
+    IEmailDispatcher emailDispatcher,
     AppLinks links,
     IFileUploadService files,
     IRequestContext requestContext,
@@ -207,28 +208,12 @@ internal sealed class EmployeeInvitationService(
             InvitedByUserId = Guid.TryParse(requestContext.UserId, out Guid userId) ? userId : null,
         });
 
-        emailQueue.Enqueue(purpose == InvitationPurpose.Credentials
-            ? new EmailMessage
-            {
-                To = email,
-                Subject = "Set up your Motee password",
-                Body =
-                    "Your employer has set up your Motee account. "
-                    + "Choose a password to sign in.\n\n"
-                    + $"{links.Join(token)}\n\n"
-                    + "This link works once, and expires on "
-                    + $"{InvitationPolicy.ExpiresAt(now):d MMMM yyyy}.",
-            }
-            : new EmailMessage
-            {
-                To = email,
-                Subject = "You have been invited to Motee",
-                Body =
-                    "You have been invited to complete your onboarding.\n\n"
-                    + $"{links.Join(token)}\n\n"
-                    + "This link works once, and expires on "
-                    + $"{InvitationPolicy.ExpiresAt(now):d MMMM yyyy}.",
-            });
+        emailDispatcher.Send(email, new EmployeeInviteEmail
+        {
+            JoinUrl = links.Join(token),
+            ExpiresAt = InvitationPolicy.ExpiresAt(now),
+            Purpose = purpose,
+        });
 
         return token;
     }

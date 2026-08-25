@@ -17,4 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Motee.Application\Motee.Application.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Motee.Tests" />
+  </ItemGroup>
 </Project>

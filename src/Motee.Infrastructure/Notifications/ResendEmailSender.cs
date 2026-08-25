@@ -1,7 +1,7 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Motee.Application.Auth;
+using Motee.Application.Notifications;
 
 namespace Motee.Infrastructure.Notifications;
 
@@ -15,13 +15,24 @@ internal sealed class ResendEmailSender(
         string senderEmail = Required("Resend:SenderEmail");
         string senderName = configuration["Resend:SenderName"] ?? "Motee";
 
-        object payload = new
-        {
-            from = $"\"{senderName}\" <{senderEmail}>",
-            to = message.To,
-            subject = message.Subject,
-            text = message.Body,
-        };
+        // Both parts when there is HTML. Sending text alone loses the branding; sending
+        // HTML alone raises the spam score and leaves plain-text clients with nothing.
+        object payload = message.HtmlBody is null
+            ? new
+            {
+                from = $"\"{senderName}\" <{senderEmail}>",
+                to = message.To,
+                subject = message.Subject,
+                text = message.TextBody,
+            }
+            : new
+            {
+                from = $"\"{senderName}\" <{senderEmail}>",
+                to = message.To,
+                subject = message.Subject,
+                text = message.TextBody,
+                html = message.HtmlBody,
+            };
 
         HttpResponseMessage response =
             await httpClient.PostAsJsonAsync("emails", payload, cancellationToken);
