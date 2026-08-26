@@ -7,6 +7,7 @@ using Motee.Application.Tenancy;
 using Motee.Domain.Auth;
 using Motee.Domain.Common;
 using Motee.Domain.Assets;
+using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Exports;
@@ -53,6 +54,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
 
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
+
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     // Read by the query filter through a closure, so the filter reflects the tenant
     // of the request currently using this context.

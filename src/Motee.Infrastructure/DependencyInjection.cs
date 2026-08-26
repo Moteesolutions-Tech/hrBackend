@@ -43,9 +43,16 @@ public static class DependencyInjection
                 "Connection string 'Default' was not found. Set ConnectionStrings:Default in "
                 + "appsettings.Development.json or via 'dotnet user-secrets set'.");
 
-        services.AddDbContext<MoteeDbContext>(options => options
+        services.AddScoped<Audit.AuditSaveChangesInterceptor>();
+        services.AddScoped<Application.Audit.IAuditTrail, Audit.AuditTrail>();
+
+        // The interceptor is resolved per context because it reads the current request
+        // for the actor and the IP. Registering it as a singleton would attribute every
+        // change to whoever happened to make the first one.
+        services.AddDbContext<MoteeDbContext>((provider, options) => options
             .UseNpgsql(connectionString)
-            .UseSnakeCaseNamingConvention());
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(provider.GetRequiredService<Audit.AuditSaveChangesInterceptor>()));
 
         services.AddScoped<ITenantRepository, TenantRepository>();
         services.AddScoped<ITenantSlugGenerator, TenantSlugGenerator>();

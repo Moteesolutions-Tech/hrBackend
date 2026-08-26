@@ -18,4 +18,15 @@ public interface IRequestContext
     string? IpAddress { get; }
 
     string? UserAgent { get; }
+
+    // Where the request was aimed, as the route template rather than the resolved path:
+    // "employees/{id}" groups, "employees/9f3c…" produces a distinct value per record
+    // and makes the audit screen's filter useless.
+    //
+    // Both are known when the request arrives, so the audit trail can carry them
+    // without waiting for a response — which is what keeps an entry and the change it
+    // describes in the same transaction.
+    string? Endpoint { get; }
+
+    string? HttpMethod { get; }
 }

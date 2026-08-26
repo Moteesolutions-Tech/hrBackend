@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Motee.Application.Audit;
 using Motee.Application.Auth;
+using Motee.Domain.Audit;
 using Motee.Domain.Identity;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
@@ -10,6 +12,7 @@ namespace Motee.Infrastructure.Auth;
 internal sealed class LoginService(
     MoteeDbContext dbContext,
     UserManager<ApplicationUser> userManager,
+    IAuditTrail audit,
     ISessionIssuer sessionIssuer) : ILoginService
 {
     public async Task<LoginResult> LoginAsync(
@@ -37,6 +40,20 @@ internal sealed class LoginService(
         {
             await userManager.AccessFailedAsync(user);
 
+            // A wrong password against a real account is the entry an auditor looks for
+            // first. The tenant is passed explicitly: no token exists yet, so nothing
+            // has resolved which company this belongs to.
+            audit.Record(
+                AuditAction.Login,
+                "admin.audit-trail",
+                "Failed sign-in: incorrect password",
+                entityId: user.Id,
+                entityType: nameof(ApplicationUser),
+                tenantId: user.TenantId,
+                httpStatus: 401);
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
             return LoginResult.Failed(
                 await userManager.IsLockedOutAsync(user)
                     ? LoginOutcome.LockedOut
@@ -53,6 +70,16 @@ internal sealed class LoginService(
         await userManager.ResetAccessFailedCountAsync(user);
 
         user.LastLoginAt = DateTimeOffset.UtcNow;
+
+        audit.Record(
+            AuditAction.Login,
+            "admin.audit-trail",
+            "Signed in",
+            entityId: user.Id,
+            entityType: nameof(ApplicationUser),
+            tenantId: user.TenantId,
+            httpStatus: 200);
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         IssuedSession? session =

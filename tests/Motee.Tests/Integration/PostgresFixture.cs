@@ -153,6 +153,12 @@ public sealed class PostgresFixture : IAsyncLifetime
         public string? IpAddress => null;
 
         public string? UserAgent => "Motee.Tests";
+
+        // Settable so a test can assert the audit trail records where a change came
+        // from. Null by default, matching background work, which has no request.
+        public string? Endpoint { get; set; }
+
+        public string? HttpMethod { get; set; }
     }
 
     public sealed class InMemoryFileStorage : Motee.Application.Exports.IFileStorage
@@ -222,10 +228,13 @@ public sealed class PostgresFixture : IAsyncLifetime
             // cascade does clear them today, but a table added later without a tenant
             // foreign key would leak rows between tests, and the failure would look
             // like a flaky assertion rather than a missing name here.
-            "TRUNCATE user_access_levels, access_levels, business_units, assets, stored_files, "
-            + "export_jobs, employee_invitations, employee_bank_details, "
-            + "employee_identity_documents, employee_medical, employees, departments, users, "
-            + "tenants RESTART IDENTITY CASCADE;");
+            // audit_entries is the case that note warned about: it has no foreign key to
+            // tenants on purpose, so nothing cascades to it and every test would inherit
+            // the previous one's history.
+            "TRUNCATE audit_entries, user_access_levels, access_levels, business_units, "
+            + "assets, stored_files, export_jobs, employee_invitations, "
+            + "employee_bank_details, employee_identity_documents, employee_medical, "
+            + "employees, departments, users, tenants RESTART IDENTITY CASCADE;");
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
