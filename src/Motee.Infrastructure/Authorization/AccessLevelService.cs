@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Auth;
 using Motee.Application.Authorization;
 using Motee.Application.Common;
+using Motee.Application.Tenancy;
 using Motee.Domain.Authorization;
 using Motee.Infrastructure.Persistence;
 
@@ -11,6 +12,7 @@ internal sealed class AccessLevelService(
     MoteeDbContext dbContext,
     IUserPermissions userPermissions,
     IRequestContext requestContext,
+    ICurrentTenant currentTenant,
     TimeProvider timeProvider) : IAccessLevelService
 {
     public async Task<IReadOnlyList<AccessLevelDto>> ListAsync(
@@ -175,7 +177,21 @@ internal sealed class AccessLevelService(
             return AccessLevelResult.Failed(AccessLevelOutcome.NotAssignable);
         }
 
-        if (!await dbContext.Users.AnyAsync(user => user.Id == userId, cancellationToken))
+        // The tenant clause is load-bearing. Users are deliberately not ITenantScoped —
+        // login must find someone by email before any tenant is known — so nothing
+        // filters this query but this line. Without it, an admin who knows a user id
+        // from another company can hand that person one of their own access levels,
+        // changing what someone in a company they do not administer is allowed to do.
+        //
+        // A user id is a GUID and not enumerable, which bounds how reachable that is;
+        // it does not make the check optional.
+        bool userInThisTenant = await dbContext.Users.AnyAsync(
+            user => user.Id == userId
+                && user.TenantId == currentTenant.TenantId
+                && !user.IsPlatformStaff,
+            cancellationToken);
+
+        if (!userInThisTenant)
         {
             return AccessLevelResult.Failed(AccessLevelOutcome.UserNotFound);
         }

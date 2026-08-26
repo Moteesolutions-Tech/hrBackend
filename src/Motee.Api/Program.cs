@@ -54,6 +54,7 @@ builder.Services.AddProblemDetails();
 
 builder.Services.AddMoteeCors(builder.Configuration);
 builder.Services.AddMoteeHealth();
+builder.Services.AddMoteeRateLimiting(builder.Configuration);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRequestContext, RequestContext>();
@@ -109,6 +110,12 @@ if (swaggerEnabled)
 // headers — or the browser reports a CORS failure and hides the real status, sending
 // whoever is debugging after the wrong problem entirely.
 app.UseCors(CorsSetup.PolicyName);
+
+// After CORS so a rejected request still carries the headers the browser needs to read
+// it — otherwise a throttled caller sees a CORS error and goes looking for the wrong
+// problem. After UseForwardedHeaders, further up, so partitioning uses the real client
+// address rather than nginx's.
+app.UseRateLimiter();
 
 // Skipped in Development, where the http launch profile has no https port.
 //

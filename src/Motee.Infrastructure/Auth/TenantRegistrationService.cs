@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Caching.Memory;
 using Motee.Application.Auth;
 using Motee.Application.Notifications;
 using Motee.Application.Tenancy;
@@ -22,8 +23,17 @@ internal sealed class TenantRegistrationService(
     TimeProvider timeProvider,
     IEmailDispatcher email,
     AppLinks links,
+    IMemoryCache noticeCache,
     ITenantSlugGenerator slugGenerator) : ITenantRegistrationService
 {
+    // In memory on purpose. It bounds mail volume rather than enforcing a security
+    // rule, so losing it on restart costs one extra notice, and a second instance
+    // would double the ceiling rather than break anything. Persisting it would mean a
+    // table written to by unauthenticated callers, which is a worse trade.
+    private static readonly TimeSpan AlreadyExistsNoticeCooldown = TimeSpan.FromMinutes(15);
+
+    private static string NoticeKey(Guid userId) => $"register-notice:{userId}";
+
     public async Task<RegisterTenantResult> RegisterAsync(
         RegisterTenantRequest request,
         CancellationToken cancellationToken = default)
@@ -48,6 +58,24 @@ internal sealed class TenantRegistrationService(
             // faster - and a stopwatch would then answer the question the identical
             // response refuses to. The result is deliberately discarded.
             _ = userManager.PasswordHasher.HashPassword(existing, request.Password);
+
+            // At most one notice per address per window. Without it this endpoint is an
+            // unauthenticated way to send mail to anyone who has an account, as often as
+            // the caller likes — and the reply is identical either way, so the abuse is
+            // invisible from the outside. A person who genuinely tried twice does not
+            // need two copies of the same message.
+            //
+            // Suppressing the send cannot change the response: both paths return the
+            // same result, and the send was queued rather than awaited, so skipping it
+            // is not observable in timing either.
+            if (noticeCache.TryGetValue(NoticeKey(existing.Id), out _))
+            {
+                return RegisterTenantResult.AlreadyRegisteredTo(emailAddress);
+            }
+
+            // Keyed on the user id rather than the submitted string, so casing and
+            // whitespace variants cannot each earn their own send.
+            noticeCache.Set(NoticeKey(existing.Id), true, AlreadyExistsNoticeCooldown);
 
             email.Send(existing.Email!, new AccountAlreadyExistsEmail
             {

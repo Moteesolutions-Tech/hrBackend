@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddMemoryCache();
         services.AddScoped<IUserPermissions, Authorization.UserPermissions>();
         services.AddScoped<Application.Authorization.IAccessLevelService, Authorization.AccessLevelService>();
+        services.AddScoped<Application.Authorization.ITenantUserService, Authorization.TenantUserService>();
         services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<IUserLookup, UserLookup>();
