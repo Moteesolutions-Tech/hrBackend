@@ -70,6 +70,7 @@ public static class DefaultAccessLevels
         "talent.performance",
         "talent.training",
         "talent.workforce-requests",
+        "talent.onboarding",
         "talent.offboarding",
         "time-payroll.attendance",
         "time-payroll.leave",

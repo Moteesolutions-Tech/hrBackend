@@ -6,12 +6,15 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Motee.Application.Tenancy;
 using Motee.Domain.Auth;
 using Motee.Domain.Common;
+using Motee.Domain.Approvals;
 using Motee.Domain.Assets;
 using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Exports;
 using Motee.Domain.Files;
+using Motee.Domain.Offboarding;
+using Motee.Domain.Onboarding;
 using Motee.Domain.Organisation;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
@@ -56,6 +59,22 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
 
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+
+    public DbSet<ApprovalTemplate> ApprovalTemplates => Set<ApprovalTemplate>();
+
+    public DbSet<ApprovalTemplateStep> ApprovalTemplateSteps => Set<ApprovalTemplateStep>();
+
+    public DbSet<ApprovalInstance> ApprovalInstances => Set<ApprovalInstance>();
+
+    public DbSet<ApprovalStepInstance> ApprovalStepInstances => Set<ApprovalStepInstance>();
+
+    public DbSet<ApprovalEvent> ApprovalEvents => Set<ApprovalEvent>();
+
+    public DbSet<OnboardingRecord> OnboardingRecords => Set<OnboardingRecord>();
+
+    public DbSet<OffboardingRecord> OffboardingRecords => Set<OffboardingRecord>();
+
+    public DbSet<OffboardingClearanceItem> OffboardingClearance => Set<OffboardingClearanceItem>();
 
     // Read by the query filter through a closure, so the filter reflects the tenant
     // of the request currently using this context.

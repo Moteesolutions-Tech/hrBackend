@@ -17,7 +17,13 @@ public static class EmployeeLifecycle
         [EmployeeStatus.Probation] = [EmployeeStatus.Active, EmployeeStatus.Offboarding],
         [EmployeeStatus.Active] = [EmployeeStatus.OnLeave, EmployeeStatus.Offboarding],
         [EmployeeStatus.OnLeave] = [EmployeeStatus.Active, EmployeeStatus.Offboarding],
-        [EmployeeStatus.Offboarding] = [EmployeeStatus.Inactive],
+        // Active as well as Inactive: notice gets withdrawn. Someone resigns, is talked
+        // out of it, and stays — which is not the same as rehiring a leaver, and the
+        // rule below about leavers is about Inactive, not this.
+        //
+        // Without Active here, reactivating an offboarding left the record saying the
+        // exit was cancelled while the employee row still said they were leaving.
+        [EmployeeStatus.Offboarding] = [EmployeeStatus.Active, EmployeeStatus.Inactive],
 
         // A leaver stays a leaver. Rehiring is a new record or an explicit
         // reinstatement, not a status change.

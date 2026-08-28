@@ -15,6 +15,7 @@ internal sealed class EmployeeService(
     MoteeDbContext dbContext,
     IAssetService assets,
     AvatarLinker avatars,
+    Application.Onboarding.IOnboardingService onboarding,
     TimeProvider timeProvider) : IEmployeeService
 {
     public async Task<PagedResult<EmployeeListItemDto>> ListAsync(
@@ -256,6 +257,12 @@ internal sealed class EmployeeService(
                 ? EmployeeOutcome.DuplicateAssetTag
                 : EmployeeOutcome.NotFound);
         }
+
+        // Every new hire starts onboarding, whichever route they came in by. Staged into
+        // the same transaction for the same reason as the rest: an employee saved without
+        // one would be invisible to the pipeline, and nothing would ever go back and
+        // notice.
+        await onboarding.EnsureAsync(employee.Id, cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

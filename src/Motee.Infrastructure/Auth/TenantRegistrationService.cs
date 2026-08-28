@@ -20,6 +20,7 @@ internal sealed class TenantRegistrationService(
     MoteeDbContext dbContext,
     UserManager<ApplicationUser> userManager,
     AccessLevelSeeder accessLevels,
+    Approvals.ApprovalTemplateSeeder approvalTemplates,
     TimeProvider timeProvider,
     IEmailDispatcher email,
     AppLinks links,
@@ -141,6 +142,11 @@ internal sealed class TenantRegistrationService(
             // Seeded inside the same transaction as the tenant: a company that exists
             // with no levels cannot create the level it would need to create levels.
             IReadOnlyList<AccessLevel> levels = accessLevels.Seed(tenant.Id);
+
+            // The approval chain the onboarding module starts. Seeded here so a company
+            // that invites somebody on their first day is not stopped by there being no
+            // template configured.
+            approvalTemplates.Seed(tenant.Id);
 
             dbContext.UserAccessLevels.Add(new UserAccessLevel
             {

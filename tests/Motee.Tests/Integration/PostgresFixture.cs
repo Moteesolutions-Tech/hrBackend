@@ -231,7 +231,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             // audit_entries is the case that note warned about: it has no foreign key to
             // tenants on purpose, so nothing cascades to it and every test would inherit
             // the previous one's history.
-            "TRUNCATE audit_entries, user_access_levels, access_levels, business_units, "
+            "TRUNCATE approval_events, approval_step_instances, approval_instances, approval_template_steps, approval_templates, offboarding_clearance_items, offboarding_records, onboarding_records, audit_entries, user_access_levels, access_levels, business_units, "
             + "assets, stored_files, export_jobs, employee_invitations, "
             + "employee_bank_details, employee_identity_documents, employee_medical, "
             + "employees, departments, users, tenants RESTART IDENTITY CASCADE;");
