@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Motee.Domain.Platform;
 
 namespace Motee.Infrastructure.Identity;
 
@@ -9,6 +10,11 @@ public class ApplicationUser : IdentityUser<Guid>
     public Guid? TenantId { get; set; }
 
     public bool IsPlatformStaff { get; set; }
+
+    // Which platform role, for staff. Null for every tenant user, and the two are kept
+    // consistent on write — a role here without the flag would grant nothing, and the
+    // flag without a role would grant everything, so either on its own is a bug waiting.
+    public PlatformRole? PlatformRole { get; set; }
 
     // The account owner for this tenant — whoever registered it, plus anyone they
     // later promote. Bypasses the permission check entirely rather than holding a

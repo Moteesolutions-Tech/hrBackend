@@ -50,3 +50,48 @@ internal sealed class AssetConfiguration : IEntityTypeConfiguration<Asset>
             .HasDatabaseName("ix_assets_tenant_status");
     }
 }
+
+internal sealed class AssetAssignmentConfiguration : IEntityTypeConfiguration<AssetAssignment>
+{
+    public void Configure(EntityTypeBuilder<AssetAssignment> builder)
+    {
+        builder.ToTable("asset_assignments");
+
+        builder.HasKey(assignment => assignment.Id);
+
+        builder.Property(assignment => assignment.ReturnReason).HasMaxLength(200);
+        builder.Property(assignment => assignment.ConditionOnAssign).HasMaxLength(500);
+        builder.Property(assignment => assignment.ConditionOnReturn).HasMaxLength(500);
+
+        builder.Ignore(assignment => assignment.IsOpen);
+
+        // CASCADE from the asset: history of a thing that no longer exists is not history
+        // anybody can act on, and an asset is hard-deletable.
+        builder.HasOne<Asset>()
+            .WithMany()
+            .HasForeignKey(assignment => assignment.AssetId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // RESTRICT to the employee, matching the asset's own pointer: deleting somebody who
+        // still appears in an asset's history is the deletion that should be stopped.
+        builder.HasOne<Employee>()
+            .WithMany()
+            .HasForeignKey(assignment => assignment.EmployeeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(assignment => assignment.AssetId)
+            .HasDatabaseName("ix_asset_assignments_asset");
+
+        // "What has this person ever held", for an offboarding clearance check.
+        builder.HasIndex(assignment => assignment.EmployeeId)
+            .HasDatabaseName("ix_asset_assignments_employee");
+
+        // At most one open spell per asset. Without this, a reassignment that failed to
+        // close the previous row leaves two people holding the same laptop according to
+        // the history, and no query can tell which is right.
+        builder.HasIndex(assignment => assignment.AssetId)
+            .IsUnique()
+            .HasFilter("returned_on IS NULL")
+            .HasDatabaseName("ix_asset_assignments_open");
+    }
+}

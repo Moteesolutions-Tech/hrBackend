@@ -20,6 +20,7 @@ namespace Motee.Infrastructure.Employees;
 internal sealed class EmployeeInvitationService(
     MoteeDbContext dbContext,
     IEmployeeService employees,
+    Application.Onboarding.IOnboardingService onboarding,
     UserManager<ApplicationUser> userManager,
     ISessionIssuer sessionIssuer,
     IEmailDispatcher emailDispatcher,
@@ -487,6 +488,17 @@ internal sealed class EmployeeInvitationService(
             invitation.ConsumedAt = now;
 
             await dbContext.SaveChangesAsync(cancellationToken);
+
+            // Completing the wizard is the submission. Making it a separate act the
+            // joiner has to remember is how packs sit finished-but-unsent for a week
+            // while HR chase somebody who thinks they are done.
+            //
+            // After the save, not before: the review resolves approvers and writes its
+            // own rows, and it should run against a joiner who is already committed.
+            // Its outcome is deliberately not checked — a chain that cannot start is a
+            // configuration problem on the company's side, and refusing to let somebody
+            // finish signing up over it would be punishing the wrong person.
+            await onboarding.SubmitAsync(employee.Id, cancellationToken);
         }
 
         return new AcceptInviteResult

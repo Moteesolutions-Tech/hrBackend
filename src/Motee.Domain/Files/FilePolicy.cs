@@ -7,6 +7,11 @@ public enum FilePurpose
     CompanyLogo,
     EmployeeAvatar,
     EmployeeDocument,
+
+    // Evidence attached to an approval: a fit note, a signed contract, a receipt. Owned
+    // by the approval rather than by a person — the same file can be the reason a
+    // request was granted, and it belongs with that decision.
+    ApprovalAttachment,
     Export,
 }
 
@@ -47,6 +52,24 @@ public static class FilePolicy
         [FilePurpose.EmployeeAvatar] = new() { MaxBytes = 2 * Mb, ContentTypes = Images },
 
         [FilePurpose.EmployeeDocument] = new()
+        {
+            MaxBytes = 20 * Mb,
+            ContentTypes =
+            [
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                .. Images,
+            ],
+        },
+
+        // The same shapes as an employee document, because it is the same kind of thing:
+        // a fit note photographed on a phone, a signed contract scanned to PDF. Kept as
+        // its own entry rather than sharing the rule, so tightening one does not silently
+        // tighten the other.
+        [FilePurpose.ApprovalAttachment] = new()
         {
             MaxBytes = 20 * Mb,
             ContentTypes =

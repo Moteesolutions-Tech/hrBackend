@@ -43,16 +43,25 @@ public static class DependencyInjection
                 "Connection string 'Default' was not found. Set ConnectionStrings:Default in "
                 + "appsettings.Development.json or via 'dotnet user-secrets set'.");
 
-        services.AddDbContext<MoteeDbContext>(options => options
+        services.AddScoped<Audit.AuditSaveChangesInterceptor>();
+        services.AddScoped<Application.Audit.IAuditTrail, Audit.AuditTrail>();
+
+        // The interceptor is resolved per context because it reads the current request
+        // for the actor and the IP. Registering it as a singleton would attribute every
+        // change to whoever happened to make the first one.
+        services.AddDbContext<MoteeDbContext>((provider, options) => options
             .UseNpgsql(connectionString)
-            .UseSnakeCaseNamingConvention());
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(provider.GetRequiredService<Audit.AuditSaveChangesInterceptor>()));
 
         services.AddScoped<ITenantRepository, TenantRepository>();
         services.AddScoped<ITenantSlugGenerator, TenantSlugGenerator>();
         services.AddScoped<Authorization.AccessLevelSeeder>();
         services.AddMemoryCache();
         services.AddScoped<IUserPermissions, Authorization.UserPermissions>();
+        services.AddScoped<Application.Authorization.IDataScopeResolver, Authorization.DataScopeResolver>();
         services.AddScoped<Application.Authorization.IAccessLevelService, Authorization.AccessLevelService>();
+        services.AddScoped<Application.Authorization.ITenantUserService, Authorization.TenantUserService>();
         services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<IUserLookup, UserLookup>();
@@ -62,7 +71,30 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ISessionIssuer, SessionIssuer>();
         services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<IBranchService, BranchService>();
         services.AddScoped<IBusinessUnitService, BusinessUnitService>();
+        services.AddScoped<Application.Onboarding.IOnboardingService, Onboarding.OnboardingService>();
+        services.AddScoped<Application.Offboarding.IOffboardingService, Offboarding.OffboardingService>();
+        services.AddScoped<Application.Approvals.IApproverResolution, Approvals.ApproverResolution>();
+        services.AddScoped<Application.Approvals.IApprovalService, Approvals.ApprovalService>();
+        services.AddScoped<Application.Approvals.IApprovalTemplateService, Approvals.ApprovalTemplateService>();
+        services.AddScoped<Approvals.ApprovalTemplateSeeder>();
+        services.AddScoped<Approvals.ApprovalAttachmentLinker>();
+        services.AddScoped<Leave.LeaveSeeder>();
+        services.AddScoped<Leave.LeaveYearResolver>();
+        services.AddScoped<Leave.HolidayLookup>();
+        services.AddScoped<Application.Leave.ILeaveBalanceService, Leave.LeaveBalanceService>();
+        services.AddScoped<Application.Leave.ILeaveRequestService, Leave.LeaveRequestService>();
+        services.AddScoped<Application.Leave.ILeavePolicyService, Leave.LeavePolicyService>();
+        services.AddScoped<Application.Leave.ILeaveYearEndService, Leave.LeaveYearEndService>();
+        services.AddScoped<ICurrentEmployee, Common.CurrentEmployee>();
+
+        // Registered as the interface, not the class: the engine resolves every observer
+        // and matches on subject type, so a module joins by adding a registration here
+        // and nothing in the engine changes.
+        services.AddScoped<Application.Approvals.IApprovalObserver, Leave.LeaveApprovalObserver>();
+        services.AddScoped<Application.Platform.IPlatformService, Platform.PlatformService>();
+        services.AddScoped<ICurrentEmployee, Common.CurrentEmployee>();
         services.AddScoped<IAssetService, AssetService>();
         services.AddScoped<AvatarLinker>();
         services.AddScoped<IEmployeeService, EmployeeService>();

@@ -91,12 +91,26 @@ public class EmployeeLifecycleTests
                 $"nothing reaches {target}"));
     }
 
+    // Notice gets withdrawn: someone resigns, is talked out of it, and stays. That is
+    // not the same as rehiring a leaver, which is still refused from Inactive below.
+    //
+    // This originally allowed only Inactive, and the effect was that reactivating an
+    // offboarding left the exit record saying the departure was cancelled while the
+    // employee row still said they were on their way out.
     [Fact]
-    public void OffboardingLeadsOnlyToLeavingOrBeingDeleted()
+    public void OffboardingLeadsToLeavingOrToStayingAfterAll()
     {
         Assert.Equal(
-            [EmployeeStatus.Inactive, EmployeeStatus.Deleted],
+            [EmployeeStatus.Active, EmployeeStatus.Inactive, EmployeeStatus.Deleted],
             EmployeeLifecycle.NextFrom(EmployeeStatus.Offboarding));
+    }
+
+    // The rule that did not change. Once somebody has actually gone, bringing them back
+    // is a rehire — a new record or an explicit reinstatement — not a status flip.
+    [Fact]
+    public void ALeaverStaysALeaver()
+    {
+        Assert.False(EmployeeLifecycle.CanMove(EmployeeStatus.Inactive, EmployeeStatus.Active));
     }
 
     [Fact]

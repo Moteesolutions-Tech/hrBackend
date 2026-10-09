@@ -6,11 +6,16 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Motee.Application.Tenancy;
 using Motee.Domain.Auth;
 using Motee.Domain.Common;
+using Motee.Domain.Approvals;
 using Motee.Domain.Assets;
+using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Exports;
 using Motee.Domain.Files;
+using Motee.Domain.Leave;
+using Motee.Domain.Offboarding;
+using Motee.Domain.Onboarding;
 using Motee.Domain.Organisation;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
@@ -32,6 +37,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<Asset> Assets => Set<Asset>();
 
+    public DbSet<AssetAssignment> AssetAssignments => Set<AssetAssignment>();
+
     public DbSet<AccessLevel> AccessLevels => Set<AccessLevel>();
 
     // What each user holds. Many-to-many: someone can be both a Line Manager and a
@@ -50,9 +57,45 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<Department> Departments => Set<Department>();
 
+    public DbSet<Branch> Branches => Set<Branch>();
+
     public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
 
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
+
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+
+    public DbSet<ApprovalTemplate> ApprovalTemplates => Set<ApprovalTemplate>();
+
+    public DbSet<ApprovalTemplateStep> ApprovalTemplateSteps => Set<ApprovalTemplateStep>();
+
+    public DbSet<ApprovalInstance> ApprovalInstances => Set<ApprovalInstance>();
+
+    public DbSet<ApprovalStepInstance> ApprovalStepInstances => Set<ApprovalStepInstance>();
+
+    public DbSet<ApprovalEvent> ApprovalEvents => Set<ApprovalEvent>();
+
+    public DbSet<ApprovalAttachment> ApprovalAttachments => Set<ApprovalAttachment>();
+
+    public DbSet<LeaveType> LeaveTypes => Set<LeaveType>();
+
+    public DbSet<LeavePolicy> LeavePolicies => Set<LeavePolicy>();
+
+    public DbSet<PublicHoliday> PublicHolidays => Set<PublicHoliday>();
+
+    public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
+
+    public DbSet<LeaveAdjustment> LeaveAdjustments => Set<LeaveAdjustment>();
+
+    public DbSet<LeaveCarryOver> LeaveCarryOvers => Set<LeaveCarryOver>();
+
+    public DbSet<LeaveBlackout> LeaveBlackouts => Set<LeaveBlackout>();
+
+    public DbSet<OnboardingRecord> OnboardingRecords => Set<OnboardingRecord>();
+
+    public DbSet<OffboardingRecord> OffboardingRecords => Set<OffboardingRecord>();
+
+    public DbSet<OffboardingClearanceItem> OffboardingClearance => Set<OffboardingClearanceItem>();
 
     // Read by the query filter through a closure, so the filter reflects the tenant
     // of the request currently using this context.

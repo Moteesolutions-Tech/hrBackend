@@ -25,6 +25,10 @@ public class UserEmailUniquenessTests(PostgresFixture fixture)
         Id = Guid.NewGuid(),
         TenantId = tenantId,
         IsPlatformStaff = tenantId is null,
+
+        // Paired with the flag, which the users table now requires: the flag removes
+        // tenant scoping, so granting it without a role is a half-finished grant.
+        PlatformRole = tenantId is null ? Motee.Domain.Platform.PlatformRole.Support : null,
         FirstName = "Ada",
         LastName = "Okafor",
         Email = email,

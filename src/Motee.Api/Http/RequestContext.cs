@@ -18,4 +18,14 @@ internal sealed class RequestContext(IHttpContextAccessor httpContextAccessor) :
     public string? IpAddress => Context?.Items[RequestContextKeys.IpAddress]?.ToString();
 
     public string? UserAgent => Context?.Request.Headers.UserAgent.ToString();
+
+    // The route template when routing has resolved one, so every request to a given
+    // endpoint shares a value the audit screen can group and filter by. Falls back to
+    // the raw path for anything unrouted — a 404, or middleware running before the
+    // endpoint is selected.
+    public string? Endpoint =>
+        (Context?.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+        ?? Context?.Request.Path.Value;
+
+    public string? HttpMethod => Context?.Request.Method;
 }

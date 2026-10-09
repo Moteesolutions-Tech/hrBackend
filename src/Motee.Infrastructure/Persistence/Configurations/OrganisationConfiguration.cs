@@ -46,3 +46,56 @@ internal sealed class DepartmentConfiguration : IEntityTypeConfiguration<Departm
             .IsUnique();
     }
 }
+
+internal sealed class BranchConfiguration : IEntityTypeConfiguration<Branch>
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    public void Configure(EntityTypeBuilder<Branch> builder)
+    {
+        builder.ToTable("branches");
+
+        builder.HasKey(branch => branch.Id);
+
+        builder.Property(branch => branch.Name).HasMaxLength(150).IsRequired();
+        builder.Property(branch => branch.Code).HasMaxLength(20).IsRequired();
+        builder.Property(branch => branch.Kind).HasConversion<string>().HasMaxLength(20);
+        builder.Property(branch => branch.Status).HasConversion<string>().HasMaxLength(20);
+        builder.Property(branch => branch.City).HasMaxLength(100);
+        builder.Property(branch => branch.Region).HasMaxLength(100);
+        builder.Property(branch => branch.PostalCode).HasMaxLength(20);
+        builder.Property(branch => branch.Country).HasMaxLength(100);
+        builder.Property(branch => branch.TimeZone).HasMaxLength(64);
+        builder.Property(branch => branch.Phone).HasMaxLength(40);
+        builder.Property(branch => branch.Email).HasMaxLength(256);
+
+        // jsonb, like the other list-valued columns here. Address lines are read and
+        // written whole and never queried by their parts.
+        builder.Property(branch => branch.AddressLines)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                value => JsonSerializer.Serialize(value, Json),
+                json => JsonSerializer.Deserialize<IReadOnlyList<string>>(json, Json)!,
+                new ValueComparer<IReadOnlyList<string>>(
+                    (left, right) => JsonSerializer.Serialize(left, Json)
+                        == JsonSerializer.Serialize(right, Json),
+                    value => JsonSerializer.Serialize(value, Json).GetHashCode(
+                        StringComparison.Ordinal),
+                    value => JsonSerializer.Deserialize<IReadOnlyList<string>>(
+                        JsonSerializer.Serialize(value, Json), Json)!));
+
+        // RESTRICT, matching a department's head: deleting somebody who still runs a site
+        // is the deletion that should be stopped, not one that silently leaves the site
+        // without a manager.
+        builder.HasOne<Domain.Employees.Employee>()
+            .WithMany()
+            .HasForeignKey(branch => branch.ManagerEmployeeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // The code appears on a badge and in a picker, where two identical ones cannot be
+        // chosen between.
+        builder.HasIndex(branch => new { branch.TenantId, branch.Code })
+            .HasDatabaseName("ix_branches_tenant_code")
+            .IsUnique();
+    }
+}

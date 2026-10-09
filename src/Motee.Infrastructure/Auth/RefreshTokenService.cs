@@ -143,6 +143,7 @@ internal sealed class RefreshTokenService(
             // Matches LoginService: an unassigned user falls back to the narrowest role.
             Role = role ?? Roles.ToSlug(Role.ReadOnly),
             IsPlatformStaff = user.IsPlatformStaff,
+            PlatformRole = user.PlatformRole,
         });
 
         return new RefreshResult

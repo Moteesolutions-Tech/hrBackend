@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Auth;
 using Motee.Domain.Identity;
+using Motee.Domain.Platform;
 using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Auth;
@@ -25,6 +26,7 @@ internal sealed class SessionIssuer(
                 TenantId = user.TenantId,
                 EmployeeId = user.EmployeeId,
                 IsPlatformStaff = user.IsPlatformStaff,
+                PlatformRole = user.PlatformRole,
                 IsOwner = user.IsOwner,
 
                 // The levels they hold, for display. Authorization resolves these
@@ -62,6 +64,7 @@ internal sealed class SessionIssuer(
             // and the self-service floor is what reaches their own record.
             Role = row.IsOwner ? "owner" : string.Join(", ", row.Levels),
             IsPlatformStaff = row.IsPlatformStaff,
+            PlatformRole = row.PlatformRole,
         });
 
         IssuedRefreshToken refreshToken =
@@ -88,6 +91,8 @@ internal sealed class SessionIssuer(
         public Guid? EmployeeId { get; init; }
 
         public required bool IsPlatformStaff { get; init; }
+
+        public PlatformRole? PlatformRole { get; init; }
 
         public required bool IsOwner { get; init; }
 

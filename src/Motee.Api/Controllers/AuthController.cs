@@ -3,6 +3,8 @@ using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Motee.Api.Http;
 using Motee.Api.Contracts;
 using Motee.Api.Contracts.Auth;
 using Motee.Application.Auth;
@@ -17,6 +19,14 @@ namespace Motee.Api.Controllers;
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/auth")]
+// Every endpoint here is reachable without a token, so nothing but this bounds how
+// often one caller can reach them. The authenticated parts of the API are bounded by
+// having to hold a token at all.
+//
+// It is a volume limit, not the per-account control: the OTP resend cooldown and
+// Identity's lockout after five failed passwords are what stop one person being
+// targeted, and they keep working when an attacker changes address.
+[EnableRateLimiting(RateLimitSetup.AuthPolicy)]
 public class AuthController(
     ITenantRegistrationService registration,
     IOtpService otp,
@@ -33,6 +43,7 @@ public class AuthController(
 {
     [HttpPost("register")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitSetup.ExpensiveAuthPolicy)]
     public async Task<IActionResult> Register(
         RegisterTenantRequest request,
         CancellationToken cancellationToken)
@@ -214,6 +225,7 @@ public class AuthController(
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitSetup.ExpensiveAuthPolicy)]
     public async Task<IActionResult> ForgotPassword(
         ForgotPasswordApiRequest request,
         CancellationToken cancellationToken)

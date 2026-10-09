@@ -42,6 +42,14 @@ public class Employee : ITenantScoped
 
     public Guid? DepartmentId { get; set; }
 
+    // Where they physically work. A separate axis from the department: Engineering spans
+    // every office, and "everyone at the Lagos site" is a question neither department nor
+    // business unit can answer.
+    //
+    // Nullable because branches arrived after the first employees did, and a company that
+    // has not set any up must not find its directory broken.
+    public Guid? BranchId { get; set; }
+
     // A fixed taxonomy rather than a reference — see EmploymentType. Null until the
     // Employment step is filled in; the create endpoint requires it.
     public EmploymentType? EmploymentType { get; set; }

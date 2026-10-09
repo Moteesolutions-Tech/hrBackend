@@ -44,6 +44,10 @@ internal static class AuthenticationSetup
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
+        // Singleton, unlike the permission handler: this one reads claims only and holds
+        // no scoped dependency.
+        services.AddSingleton<IAuthorizationHandler, PlatformAuthorizationHandler>();
+
         return services;
     }
 }

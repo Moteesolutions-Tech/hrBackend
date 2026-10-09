@@ -8,8 +8,14 @@ using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Assets;
 
-internal sealed class AssetService(MoteeDbContext dbContext, TimeProvider timeProvider) : IAssetService
+internal sealed class AssetService(
+    MoteeDbContext dbContext,
+    IRequestContext requestContext,
+    TimeProvider timeProvider) : IAssetService
 {
+    private Guid? CurrentUser() =>
+        Guid.TryParse(requestContext.UserId, out Guid userId) ? userId : null;
+
     public async Task<PagedResult<AssetDto>> ListAsync(
         AssetQuery query,
         CancellationToken cancellationToken = default)
@@ -110,8 +116,41 @@ internal sealed class AssetService(MoteeDbContext dbContext, TimeProvider timePr
 
         DateTimeOffset now = timeProvider.GetUtcNow();
 
+        DateOnly assignedOn = request.AssignedDate ?? DateOnly.FromDateTime(now.UtcDateTime);
+
+        AssetAssignment? open = await dbContext.AssetAssignments
+            .Where(assignment => assignment.AssetId == asset.Id && assignment.ReturnedOn == null)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Assigning to whoever already holds it is somebody correcting the date or the
+        // condition, not a handover. Closing their spell and opening another would read as
+        // a handover to themselves — so the existing one is amended instead.
+        //
+        // A genuine handover never reaches here: CheckAssignableAsync refuses to assign an
+        // asset somebody else is holding until it has been returned.
+        if (open is not null && open.EmployeeId == request.EmployeeId)
+        {
+            open.AssignedOn = assignedOn;
+            open.ConditionOnAssign = request.Condition ?? open.ConditionOnAssign;
+            open.UpdatedAt = now;
+        }
+        else
+        {
+            dbContext.AssetAssignments.Add(new AssetAssignment
+            {
+                Id = Guid.NewGuid(),
+                AssetId = asset.Id,
+                EmployeeId = request.EmployeeId,
+                AssignedOn = assignedOn,
+                ConditionOnAssign = request.Condition,
+                AssignedByUserId = CurrentUser(),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+
         asset.AssignedToEmployeeId = request.EmployeeId;
-        asset.AssignedDate = request.AssignedDate ?? DateOnly.FromDateTime(now.UtcDateTime);
+        asset.AssignedDate = assignedOn;
         asset.Status = AssetStatus.Assigned;
         asset.UpdatedAt = now;
 
@@ -120,7 +159,10 @@ internal sealed class AssetService(MoteeDbContext dbContext, TimeProvider timePr
         return AssetResult.Ok((await GetAsync(id, cancellationToken))!);
     }
 
-    public async Task<AssetResult> ReturnAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<AssetResult> ReturnAsync(
+        Guid id,
+        ReturnAssetRequest? request = null,
+        CancellationToken cancellationToken = default)
     {
         Asset? asset = await FindAsync(id, cancellationToken);
 
@@ -134,17 +176,89 @@ internal sealed class AssetService(MoteeDbContext dbContext, TimeProvider timePr
             return AssetResult.Failed(AssetOutcome.InvalidStatusChange);
         }
 
-        // Cleared rather than kept as "last holder". Without an assignment history
-        // there is nowhere honest to put that, and a stale name on an available asset
-        // reads as though they still have it.
+        DateTimeOffset now = timeProvider.GetUtcNow();
+
+        await CloseOpenAssignmentAsync(
+            asset.Id,
+            request?.ReturnedOn ?? DateOnly.FromDateTime(now.UtcDateTime),
+            request?.Reason ?? "Returned",
+            request?.Condition,
+            now,
+            cancellationToken);
+
+        // The pointer is cleared, and that is now safe to do: the assignment row holds who
+        // had it and until when, so clearing this loses nothing. A stale name left on an
+        // available asset would read as though they still have it.
         asset.AssignedToEmployeeId = null;
         asset.AssignedDate = null;
         asset.Status = AssetStatus.Available;
-        asset.UpdatedAt = timeProvider.GetUtcNow();
+        asset.UpdatedAt = now;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return AssetResult.Ok((await GetAsync(id, cancellationToken))!);
+    }
+
+    public async Task<IReadOnlyList<AssetAssignmentDto>> HistoryAsync(
+        Guid assetId,
+        CancellationToken cancellationToken = default) =>
+        await dbContext.AssetAssignments
+            .AsNoTracking()
+            .Where(assignment => assignment.AssetId == assetId)
+
+            // Open spell first, then most recent. An asset somebody holds now should lead
+            // with that rather than making the reader scan for the row without an end date.
+            .OrderByDescending(assignment => assignment.ReturnedOn == null)
+            .ThenByDescending(assignment => assignment.AssignedOn)
+            .Select(assignment => new AssetAssignmentDto
+            {
+                Id = assignment.Id,
+                EmployeeId = assignment.EmployeeId,
+                EmployeeName = dbContext.Employees
+                    .Where(employee => employee.Id == assignment.EmployeeId)
+                    .Select(employee => employee.FirstName + " " + employee.LastName)
+                    .FirstOrDefault() ?? "Unknown",
+                AssignedOn = assignment.AssignedOn,
+                ReturnedOn = assignment.ReturnedOn,
+                ReturnReason = assignment.ReturnReason,
+                ConditionOnAssign = assignment.ConditionOnAssign,
+                ConditionOnReturn = assignment.ConditionOnReturn,
+                HeldDays = assignment.ReturnedOn == null
+                    ? null
+                    : assignment.ReturnedOn.Value.DayNumber - assignment.AssignedOn.DayNumber,
+                IsOpen = assignment.ReturnedOn == null,
+            })
+            .ToListAsync(cancellationToken);
+
+    // Closes whichever row is still open, if any. Idempotent on purpose: an asset whose
+    // pointer was cleared before this table existed has no open row, and a return must
+    // still succeed for it rather than failing on missing history.
+    private async Task CloseOpenAssignmentAsync(
+        Guid assetId,
+        DateOnly returnedOn,
+        string? reason,
+        string? condition,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        AssetAssignment? open = await dbContext.AssetAssignments
+            .Where(assignment => assignment.AssetId == assetId && assignment.ReturnedOn == null)
+            .OrderByDescending(assignment => assignment.AssignedOn)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (open is null)
+        {
+            return;
+        }
+
+        // A return dated before the assignment is somebody correcting a date badly. Clamped
+        // rather than refused: the spell existed, and a negative one would break any report
+        // that measures how long people keep things.
+        open.ReturnedOn = returnedOn < open.AssignedOn ? open.AssignedOn : returnedOn;
+        open.ReturnReason = reason;
+        open.ConditionOnReturn = condition;
+        open.ReturnedByUserId = CurrentUser();
+        open.UpdatedAt = now;
     }
 
     public async Task<AssetResult> ChangeStatusAsync(
@@ -164,15 +278,27 @@ internal sealed class AssetService(MoteeDbContext dbContext, TimeProvider timePr
             return AssetResult.Failed(AssetOutcome.InvalidStatusChange);
         }
 
-        // Nobody is holding a lost or retired asset, so the assignment goes with it.
+        DateTimeOffset changedAt = timeProvider.GetUtcNow();
+
+        // Nobody is holding a lost or retired asset, so the assignment goes with it — but
+        // the spell is closed rather than dropped. "Lost while Tunde had it" is the fact an
+        // investigation needs, and clearing the pointer alone would erase exactly that.
         if (status is AssetStatus.Lost or AssetStatus.Retired or AssetStatus.Available)
         {
+            await CloseOpenAssignmentAsync(
+                asset.Id,
+                DateOnly.FromDateTime(changedAt.UtcDateTime),
+                status.ToString(),
+                null,
+                changedAt,
+                cancellationToken);
+
             asset.AssignedToEmployeeId = null;
             asset.AssignedDate = null;
         }
 
         asset.Status = status;
-        asset.UpdatedAt = timeProvider.GetUtcNow();
+        asset.UpdatedAt = changedAt;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -213,9 +339,24 @@ internal sealed class AssetService(MoteeDbContext dbContext, TimeProvider timePr
 
             Apply(asset, request);
 
+            DateOnly assignedOn = request.AssignedDate ?? DateOnly.FromDateTime(now.UtcDateTime);
+
             asset.AssignedToEmployeeId = employeeId;
-            asset.AssignedDate = request.AssignedDate ?? DateOnly.FromDateTime(now.UtcDateTime);
+            asset.AssignedDate = assignedOn;
             asset.Status = AssetStatus.Assigned;
+
+            // A brand new asset has no spell to close, so this opens the first one. Kit
+            // issued at onboarding is the start of its history, not an exception to it.
+            dbContext.AssetAssignments.Add(new AssetAssignment
+            {
+                Id = Guid.NewGuid(),
+                AssetId = asset.Id,
+                EmployeeId = employeeId,
+                AssignedOn = assignedOn,
+                AssignedByUserId = CurrentUser(),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
 
             // Added, not saved: the caller owns the transaction so the employee and
             // their kit commit together.
