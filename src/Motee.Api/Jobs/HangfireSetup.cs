@@ -31,11 +31,28 @@ internal static class HangfireSetup
         });
 
         services.AddScoped<SendEmailJob>();
+        services.AddScoped<LeaveYearEndJob>();
 
         // Replaces the inline queue registered by AddInfrastructure.
         services.Replace(ServiceDescriptor.Scoped<IEmailQueue, HangfireEmailQueue>());
 
         return services;
+    }
+
+    // Registered after the app is built, because a recurring job needs the storage the
+    // server configured above.
+    //
+    // Just after midnight UTC. Late enough that a company whose year turned over at
+    // midnight has genuinely started the new one; early enough that carry-over is in
+    // place before anybody books leave against it on the first morning.
+    public static WebApplication UseMoteeRecurringJobs(this WebApplication app)
+    {
+        app.Services.GetRequiredService<IRecurringJobManager>().AddOrUpdate<LeaveYearEndJob>(
+            LeaveYearEndJob.RecurringId,
+            job => job.RunAsync(CancellationToken.None),
+            "15 0 * * *");
+
+        return app;
     }
 
     public static WebApplication UseMoteeJobsDashboard(this WebApplication app)

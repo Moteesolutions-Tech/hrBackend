@@ -13,6 +13,8 @@ public static class MoteeClaimTypes
     public const string EmployeeId = "employee_id";
     public const string IsPlatformStaff = "is_platform_staff";
 
+    public const string PlatformRole = "platform_role";
+
     // Reserved for impersonation; not emitted yet.
     public const string ActAs = "act_as";
     public const string ImpersonatedBy = "impersonated_by";

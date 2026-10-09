@@ -404,11 +404,10 @@ public class AssetServiceTests(PostgresFixture fixture)
     }
 
     // Deleting a person must not delete company property, and must not quietly leave
-    // a laptop marked Assigned with nobody holding it. Erasing them is refused until
-    // the kit comes back. The app soft-deletes employees, so this only bites on a
-    // hard delete — where being stopped is the point.
+    // a laptop marked Assigned with nobody holding it. The app soft-deletes employees,
+    // so this only bites on a hard delete — where being stopped is the point.
     [SkippableFact]
-    public async Task SomeoneStillHoldingKitCannotBeErased()
+    public async Task SomeoneWhoHasHeldKitCannotBeErased()
     {
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
@@ -427,7 +426,15 @@ public class AssetServiceTests(PostgresFixture fixture)
             await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
         }
 
-        // Returned, then erased: the asset survives them, with no holder.
+        // Returning the kit is no longer enough to allow erasure, and that is deliberate.
+        //
+        // Since asset_assignments arrived, the closed spell still names them: it is the
+        // record of who held company property and when, which an audit asks about long
+        // after the laptop came back. Erasing the person would erase that answer.
+        //
+        // The app soft-deletes employees, so this only bites on a hard delete. Genuine
+        // erasure — a GDPR request — needs anonymisation that keeps the row and scrubs the
+        // name, which payroll and the audit trail will need on exactly the same grounds.
         await Service(owned).ReturnAsync(assetId);
 
         await using (MoteeDbContext context = fixture.CreateContext(tenantId))
@@ -435,12 +442,14 @@ public class AssetServiceTests(PostgresFixture fixture)
             context.Employees.Remove(
                 await context.Employees.SingleAsync(employee => employee.Id == employeeId));
 
-            await context.SaveChangesAsync();
+            await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
         }
 
+        // The asset itself is unaffected either way: back on the shelf, nobody holding it.
         AssetDto? survivor = await Service(owned).GetAsync(assetId);
 
         Assert.NotNull(survivor);
         Assert.Equal(AssetStatus.Available, survivor.Status);
+        Assert.Null(survivor.AssignedToEmployeeId);
     }
 }

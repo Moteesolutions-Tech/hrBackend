@@ -13,6 +13,7 @@ using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Exports;
 using Motee.Domain.Files;
+using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
 using Motee.Domain.Onboarding;
 using Motee.Domain.Organisation;
@@ -36,6 +37,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<Asset> Assets => Set<Asset>();
 
+    public DbSet<AssetAssignment> AssetAssignments => Set<AssetAssignment>();
+
     public DbSet<AccessLevel> AccessLevels => Set<AccessLevel>();
 
     // What each user holds. Many-to-many: someone can be both a Line Manager and a
@@ -54,6 +57,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<Department> Departments => Set<Department>();
 
+    public DbSet<Branch> Branches => Set<Branch>();
+
     public DbSet<ExportJob> ExportJobs => Set<ExportJob>();
 
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
@@ -69,6 +74,22 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<ApprovalStepInstance> ApprovalStepInstances => Set<ApprovalStepInstance>();
 
     public DbSet<ApprovalEvent> ApprovalEvents => Set<ApprovalEvent>();
+
+    public DbSet<ApprovalAttachment> ApprovalAttachments => Set<ApprovalAttachment>();
+
+    public DbSet<LeaveType> LeaveTypes => Set<LeaveType>();
+
+    public DbSet<LeavePolicy> LeavePolicies => Set<LeavePolicy>();
+
+    public DbSet<PublicHoliday> PublicHolidays => Set<PublicHoliday>();
+
+    public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
+
+    public DbSet<LeaveAdjustment> LeaveAdjustments => Set<LeaveAdjustment>();
+
+    public DbSet<LeaveCarryOver> LeaveCarryOvers => Set<LeaveCarryOver>();
+
+    public DbSet<LeaveBlackout> LeaveBlackouts => Set<LeaveBlackout>();
 
     public DbSet<OnboardingRecord> OnboardingRecords => Set<OnboardingRecord>();
 

@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<Authorization.AccessLevelSeeder>();
         services.AddMemoryCache();
         services.AddScoped<IUserPermissions, Authorization.UserPermissions>();
+        services.AddScoped<Application.Authorization.IDataScopeResolver, Authorization.DataScopeResolver>();
         services.AddScoped<Application.Authorization.IAccessLevelService, Authorization.AccessLevelService>();
         services.AddScoped<Application.Authorization.ITenantUserService, Authorization.TenantUserService>();
         services.AddScoped<ITenantRegistrationService, TenantRegistrationService>();
@@ -70,6 +71,7 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<ISessionIssuer, SessionIssuer>();
         services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<IBranchService, BranchService>();
         services.AddScoped<IBusinessUnitService, BusinessUnitService>();
         services.AddScoped<Application.Onboarding.IOnboardingService, Onboarding.OnboardingService>();
         services.AddScoped<Application.Offboarding.IOffboardingService, Offboarding.OffboardingService>();
@@ -77,6 +79,22 @@ public static class DependencyInjection
         services.AddScoped<Application.Approvals.IApprovalService, Approvals.ApprovalService>();
         services.AddScoped<Application.Approvals.IApprovalTemplateService, Approvals.ApprovalTemplateService>();
         services.AddScoped<Approvals.ApprovalTemplateSeeder>();
+        services.AddScoped<Approvals.ApprovalAttachmentLinker>();
+        services.AddScoped<Leave.LeaveSeeder>();
+        services.AddScoped<Leave.LeaveYearResolver>();
+        services.AddScoped<Leave.HolidayLookup>();
+        services.AddScoped<Application.Leave.ILeaveBalanceService, Leave.LeaveBalanceService>();
+        services.AddScoped<Application.Leave.ILeaveRequestService, Leave.LeaveRequestService>();
+        services.AddScoped<Application.Leave.ILeavePolicyService, Leave.LeavePolicyService>();
+        services.AddScoped<Application.Leave.ILeaveYearEndService, Leave.LeaveYearEndService>();
+        services.AddScoped<ICurrentEmployee, Common.CurrentEmployee>();
+
+        // Registered as the interface, not the class: the engine resolves every observer
+        // and matches on subject type, so a module joins by adding a registration here
+        // and nothing in the engine changes.
+        services.AddScoped<Application.Approvals.IApprovalObserver, Leave.LeaveApprovalObserver>();
+        services.AddScoped<Application.Platform.IPlatformService, Platform.PlatformService>();
+        services.AddScoped<ICurrentEmployee, Common.CurrentEmployee>();
         services.AddScoped<IAssetService, AssetService>();
         services.AddScoped<AvatarLinker>();
         services.AddScoped<IEmployeeService, EmployeeService>();

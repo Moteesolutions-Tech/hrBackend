@@ -21,6 +21,7 @@ internal sealed class TenantRegistrationService(
     UserManager<ApplicationUser> userManager,
     AccessLevelSeeder accessLevels,
     Approvals.ApprovalTemplateSeeder approvalTemplates,
+    Leave.LeaveSeeder leave,
     TimeProvider timeProvider,
     IEmailDispatcher email,
     AppLinks links,
@@ -147,6 +148,12 @@ internal sealed class TenantRegistrationService(
             // that invites somebody on their first day is not stopped by there being no
             // template configured.
             approvalTemplates.Seed(tenant.Id);
+
+            // Leave types, their policies, and three years of public holidays. Country
+            // dependent, unlike the seeders above: statutory entitlement and the days a
+            // country is closed differ, and a shared default would be wrong for one of
+            // the two on the day it was written.
+            leave.Seed(tenant.Id, countryCode);
 
             dbContext.UserAccessLevels.Add(new UserAccessLevel
             {

@@ -61,6 +61,19 @@ internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
             .HasForeignKey(employee => employee.DepartmentId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // RESTRICT rather than SetNull, unlike the department above. The branch service
+        // already refuses to delete a site anybody is posted to, so this is the backstop
+        // for a direct delete — and silently unposting everybody would drop them out of
+        // every site-scoped list, a fire register included.
+        builder.HasOne<Branch>()
+            .WithMany()
+            .HasForeignKey(employee => employee.BranchId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // "Everyone at this site", which is the branch screen and the branch data scope.
+        builder.HasIndex(employee => employee.BranchId)
+            .HasDatabaseName("ix_employees_branch");
+
         // The org hierarchy. Restrict rather than cascade: deleting a manager must
         // not delete their reports.
         builder.HasOne<Employee>()

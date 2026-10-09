@@ -96,6 +96,9 @@ public sealed record EmployeeQuery : PagedQuery
 
     public Guid? DepartmentId { get; init; }
 
+    // Filter by site.
+    public Guid? BranchId { get; init; }
+
     public EmployeeStatus? Status { get; init; }
 
     public EmploymentType? EmploymentType { get; init; }
@@ -126,6 +129,10 @@ public sealed record EmployeeRequest : SelfProfileRequest
     public required string JobTitle { get; init; }
 
     public required Guid DepartmentId { get; init; }
+
+    // Where they are posted. Optional: a company that has not set up branches
+    // must still be able to add people.
+    public Guid? BranchId { get; init; }
 
     public required EmploymentType EmploymentType { get; init; }
 
@@ -206,6 +213,10 @@ public sealed record EmployeeListItemDto
 
     public Guid? DepartmentId { get; init; }
 
+    public Guid? BranchId { get; init; }
+
+    public string? BranchName { get; init; }
+
     public string? Department { get; init; }
 
     public EmploymentType? EmploymentType { get; init; }
@@ -277,7 +288,13 @@ public sealed record EmployeeDto
 
     public Guid? DepartmentId { get; init; }
 
+    public Guid? BranchId { get; init; }
+
     public string? Department { get; init; }
+
+    // Resolved alongside the department name, so a profile can show where somebody sits
+    // and where they are without a second call.
+    public string? BranchName { get; init; }
 
     public EmploymentType? EmploymentType { get; init; }
 

@@ -30,11 +30,16 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
     // and an option offered before its resolver exists is one the backend cannot honour.
     [HttpGet("catalogue")]
     [RequiresPermission(Module, PermissionAction.View)]
-    public IActionResult Catalogue() =>
+    public async Task<IActionResult> Catalogue(CancellationToken cancellationToken) =>
         Ok<object>(new
         {
             documentTypes = ApprovalDocumentTypes.BuiltIn,
             approvers = Enum.GetNames<ApproverResolver>(),
+
+            // The access levels a Role step can name. Served alongside the resolvers
+            // because picking "Role" is only half a choice — the client would otherwise
+            // have to fetch the access levels screen's data to complete it.
+            roles = await templates.RolesAsync(cancellationToken),
         });
 
     [HttpGet("{id:guid}")]
@@ -93,7 +98,8 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
         ApprovalTemplateOutcome.DuplicateName or ApprovalTemplateOutcome.InUse =>
             MoteeStatusCodes.Conflict,
         ApprovalTemplateOutcome.SystemTemplate => MoteeStatusCodes.Forbidden,
-        ApprovalTemplateOutcome.NoSteps => MoteeStatusCodes.InvalidRequest,
+        ApprovalTemplateOutcome.NoSteps or ApprovalTemplateOutcome.RoleMissing =>
+            MoteeStatusCodes.InvalidRequest,
         _ => MoteeStatusCodes.InternalServerError,
     };
 
@@ -110,6 +116,8 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
             "Approvals have run against this template, so it cannot be deleted. "
             + "Deactivate it instead.",
         ApprovalTemplateOutcome.NoSteps => "An approval chain needs at least one step.",
+        ApprovalTemplateOutcome.RoleMissing =>
+            "A step set to Role must name an access level that exists.",
         _ => "Could not save the approval template.",
     };
 }

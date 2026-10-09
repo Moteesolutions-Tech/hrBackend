@@ -1,3 +1,5 @@
+using Motee.Domain.Platform;
+
 namespace Motee.Application.Auth;
 
 public sealed record TokenSubject
@@ -21,4 +23,7 @@ public sealed record TokenSubject
     public required string Role { get; init; }
 
     public required bool IsPlatformStaff { get; init; }
+
+    // Set exactly when IsPlatformStaff is, enforced by TokenClaimsBuilder.Guard.
+    public PlatformRole? PlatformRole { get; init; }
 }

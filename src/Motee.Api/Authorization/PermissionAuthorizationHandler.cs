@@ -1,12 +1,14 @@
 using Microsoft.AspNetCore.Authorization;
 using Motee.Application.Auth;
+using Motee.Application.Authorization;
 using Motee.Domain.Authorization;
 
 namespace Motee.Api.Authorization;
 
 internal sealed class PermissionAuthorizationHandler(
     IHttpContextAccessor httpContextAccessor,
-    IUserPermissions userPermissions) : AuthorizationHandler<PermissionRequirement>
+    IUserPermissions userPermissions,
+    IDataScopeResolver scopeResolver) : AuthorizationHandler<PermissionRequirement>
 {
     // Where the granted breadth is left for the endpoint to read. Passing the check
     // is not the whole answer — a team-scoped grant still has to narrow its query.
@@ -46,6 +48,15 @@ internal sealed class PermissionAuthorizationHandler(
             return;
         }
 
+        // Self-relative scopes become named ones here, once, before anything downstream
+        // sees them. Doing it at the one point the scope is worked out is what keeps the
+        // query layer — and every module added after this one — unaware that
+        // "their own department" is a thing that exists.
+        if (reach.NeedsHolder)
+        {
+            reach = await scopeResolver.ResolveAsync(reach, HolderEmployeeId(context));
+        }
+
         if (httpContextAccessor.HttpContext is HttpContext http)
         {
             http.Items[ScopeItemKey] = reach.Breadth;
@@ -54,4 +65,11 @@ internal sealed class PermissionAuthorizationHandler(
 
         context.Succeed(requirement);
     }
+
+    // The claim, not a database lookup: it is already in the token, and the resolver
+    // reads the employee row anyway when it needs the department or branch.
+    private static Guid? HolderEmployeeId(AuthorizationHandlerContext context) =>
+        Guid.TryParse(context.User.FindFirst(MoteeClaimTypes.EmployeeId)?.Value, out Guid id)
+            ? id
+            : null;
 }

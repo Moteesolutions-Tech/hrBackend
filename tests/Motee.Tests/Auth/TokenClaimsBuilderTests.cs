@@ -28,6 +28,10 @@ public class TokenClaimsBuilderTests
         EmployeeId = null,
         Role = Roles.ToSlug(Role.SuperAdmin),
         IsPlatformStaff = true,
+
+        // The flag and the role go together: the flag removes tenant scoping, the role is
+        // what they may then do. PlatformBoundaryTests covers that invariant itself.
+        PlatformRole = Motee.Domain.Platform.PlatformRole.Admin,
     };
 
     private static string? Value(IReadOnlyList<Claim> claims, string type) =>

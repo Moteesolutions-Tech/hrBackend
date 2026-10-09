@@ -11,6 +11,10 @@ internal sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Ap
     {
         builder.ToTable("users");
 
+        // Stored as text, like every other enum here. A column that reads "Support" in
+        // psql during an incident is worth more than the two bytes an integer would save.
+        builder.Property(user => user.PlatformRole).HasConversion<string>().HasMaxLength(20);
+
         builder.Property(user => user.FirstName).HasMaxLength(100).IsRequired();
         builder.Property(user => user.MiddleName).HasMaxLength(100);
         builder.Property(user => user.LastName).HasMaxLength(100).IsRequired();

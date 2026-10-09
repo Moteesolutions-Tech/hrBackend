@@ -30,11 +30,38 @@ public class ApprovalTemplate : ITenantScoped
 
     public bool IsActive { get; set; } = true;
 
+    // Owned rather than a foreign key: three columns on this row, with no meaning apart
+    // from the template they belong to.
+    public AttachmentRules Attachments { get; set; } = AttachmentRules.None;
+
     public required DateTimeOffset CreatedAt { get; set; }
 
     public required DateTimeOffset UpdatedAt { get; set; }
 
     public Guid? UpdatedByUserId { get; set; }
+}
+
+// What a chain expects to be shown before anybody decides.
+//
+// A rule of the workflow rather than of a step: whoever submits attaches the evidence
+// once, and every approver down the chain reads the same thing. Asking per step would
+// mean the second approver seeing a different set from the first.
+public sealed record AttachmentRules
+{
+    public static readonly AttachmentRules None = new();
+
+    public bool Allowed { get; init; }
+
+    // Implies Allowed. Kept as two flags rather than one three-state field because that
+    // is how the form reads — a checkbox to permit, a second to insist.
+    public bool Required { get; init; }
+
+    // What to attach, in the submitter's words: "Fit note for absences over 7 days".
+    // Without it "attachment required" tells somebody they are missing something but not
+    // what, which is how a required field becomes a guess.
+    public string? Note { get; init; }
+
+    public bool Permits => Allowed || Required;
 }
 
 public class ApprovalTemplateStep : ITenantScoped
@@ -56,6 +83,10 @@ public class ApprovalTemplateStep : ITenantScoped
     public required string Label { get; set; }
 
     public required ApproverResolver Approver { get; set; }
+
+    // Which access level answers this step, for Role steps only. Null for the positional
+    // rules, which need no argument — "the line manager" is complete on its own.
+    public Guid? RoleId { get; set; }
 
     // A step that cannot be resolved to a person is skipped rather than blocking, when
     // it is optional. A required one stops the chain and says why.
@@ -125,13 +156,30 @@ public class ApprovalStepInstance : ITenantScoped
 
     public required ApproverResolver Approver { get; set; }
 
+    // The rule's argument, snapshotted beside the rule itself — which access level this
+    // step asks for. Set for every Role step whether or not anybody was found, because
+    // it is the question; ResolvedRoleId below is the answer.
+    //
+    // Keeping the two apart is what lets a stuck step be asked again later. Without it a
+    // role step that resolved to nobody would have forgotten which role it wanted.
+    public Guid? RoleId { get; set; }
+
     public bool Required { get; set; }
 
     // Who it actually landed on, worked out at submission. Null when nobody could be
-    // found — an employee with no manager recorded, a department with no head.
+    // found — an employee with no manager recorded, a department with no head — and also
+    // null for role steps, which land on a queue rather than on a person.
     public Guid? ResolvedEmployeeId { get; set; }
 
     public Guid? ResolvedUserId { get; set; }
+
+    // The queue this step actually landed on — set only when the level exists, is active
+    // and somebody holds it. Null alongside a SkippedReason when it did not, which is how
+    // "waiting on HR" and "HR has nobody in it" stay distinguishable.
+    //
+    // Who holds that level is still read live at decision time, so the queue follows the
+    // people actually in the job.
+    public Guid? ResolvedRoleId { get; set; }
 
     public required ApprovalStepStatus Status { get; set; }
 
@@ -171,6 +219,32 @@ public class ApprovalEvent : ITenantScoped
     public required DateTimeOffset At { get; set; }
 }
 
+// Evidence hung on one run of a chain.
+//
+// The file itself lives in the files module like every other upload; this is the link
+// saying which approval it belongs to and who put it there. Attaching is not a decision,
+// so it carries no status of its own.
+public class ApprovalAttachment : ITenantScoped
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    public Guid InstanceId { get; set; }
+
+    public Guid FileId { get; set; }
+
+    // Which round it was attached in. A request returned for a missing fit note and
+    // resubmitted with one should show both rounds honestly — the second approver needs
+    // to see that the note arrived late, not a tidied history in which it was always
+    // there.
+    public int Round { get; set; }
+
+    public Guid? UploadedByUserId { get; set; }
+
+    public DateTimeOffset UploadedAt { get; set; }
+}
+
 public static class ApprovalEventTypes
 {
     public const string Submitted = "submitted";
@@ -180,4 +254,9 @@ public static class ApprovalEventTypes
     public const string Resubmitted = "resubmitted";
     public const string Cancelled = "cancelled";
     public const string Skipped = "skipped";
+
+    // A blocked step found an approver on being asked again. Recorded because a step
+    // quietly acquiring somebody to act on it is exactly the kind of change that has to
+    // be accountable later.
+    public const string Reresolved = "reresolved";
 }

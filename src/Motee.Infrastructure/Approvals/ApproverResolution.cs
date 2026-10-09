@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Approvals;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Approvals;
@@ -10,11 +11,19 @@ internal sealed class ApproverResolution(MoteeDbContext dbContext) : IApproverRe
     public async Task<ResolvedApprover> ResolveAsync(
         ApproverResolver resolver,
         Guid? subjectEmployeeId,
+        Guid? roleId = null,
         CancellationToken cancellationToken = default)
     {
-        // Both phase 1 resolvers are positional — they answer "relative to whom". With
-        // no subject there is no anchor, and guessing one would put the approval in
-        // front of somebody arbitrary.
+        // A role needs no subject to resolve against — "someone in Finance" means the
+        // same thing whoever the request is about — so it is answered before the
+        // positional rules reach for their anchor.
+        if (resolver == ApproverResolver.Role)
+        {
+            return await RoleAsync(roleId, subjectEmployeeId, cancellationToken);
+        }
+
+        // The positional rules answer "relative to whom". With no subject there is no
+        // anchor, and guessing one would put the approval in front of somebody arbitrary.
         if (subjectEmployeeId is not Guid employeeId)
         {
             return ResolvedApprover.Nobody("This approval has no employee to resolve against.");
@@ -27,6 +36,87 @@ internal sealed class ApproverResolution(MoteeDbContext dbContext) : IApproverRe
             _ => ResolvedApprover.Nobody($"Unsupported approver rule '{resolver}'."),
         };
     }
+
+    public async Task<bool> HoldsRoleAsync(
+        Guid userId,
+        Guid roleId,
+        CancellationToken cancellationToken = default) =>
+        await EligibleHolders(roleId).AnyAsync(holder => holder == userId, cancellationToken);
+
+    private async Task<ResolvedApprover> RoleAsync(
+        Guid? roleId,
+        Guid? subjectEmployeeId,
+        CancellationToken cancellationToken)
+    {
+        if (roleId is not Guid role)
+        {
+            return ResolvedApprover.Nobody("This step names no access level to ask.");
+        }
+
+        // A deactivated level grants nothing to anyone still holding it, so a step
+        // pointing at one has nobody behind it however many people are assigned.
+        AccessLevel? level = await dbContext.AccessLevels
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == role && candidate.Status == AccessLevelStatus.Active,
+                cancellationToken);
+
+        if (level is null)
+        {
+            return ResolvedApprover.Nobody("The access level for this step no longer exists.");
+        }
+
+        // Checked now as well as at decision time. A step handed to an empty queue is
+        // one nobody will ever see, and saying so at submission is the difference
+        // between a chain that stalls visibly and one that stalls silently.
+        List<Guid> holders = await EligibleHolders(role).ToListAsync(cancellationToken);
+
+        if (holders.Count == 0)
+        {
+            return ResolvedApprover.Nobody($"Nobody currently holds {level.Name}.");
+        }
+
+        // Somebody approving their own request is not an approval, whether they were
+        // named by position or reached through a role. If excluding them empties the
+        // queue they were the only holder, and there is genuinely no second pair of eyes.
+        if (subjectEmployeeId is Guid subject)
+        {
+            Guid? theirUserId = await dbContext.Users
+                .Where(user => user.EmployeeId == subject)
+                .Select(user => (Guid?)user.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (theirUserId is Guid self && holders.All(holder => holder == self))
+            {
+                return ResolvedApprover.Nobody(
+                    $"They are the only person holding {level.Name}.");
+            }
+        }
+
+        return ResolvedApprover.ToRole(role, level.Name);
+    }
+
+    // Everyone who can act on a role step right now. Read live rather than snapshotted,
+    // so somebody who joined the team this morning can clear this morning's queue and
+    // somebody who left cannot hold one up.
+    private IQueryable<Guid> EligibleHolders(Guid roleId) =>
+        dbContext.UserAccessLevels
+            .AsNoTracking()
+            .Where(assignment => assignment.AccessLevelId == roleId)
+            .Join(
+                dbContext.AccessLevels.Where(level => level.Status == AccessLevelStatus.Active),
+                assignment => assignment.AccessLevelId,
+                level => level.Id,
+                (assignment, _) => assignment.UserId)
+
+            // A holder whose own employee record has gone inactive is a leaver whose
+            // access has not been tidied up. Their queue is not somewhere work should sit.
+            .Where(userId => !dbContext.Users
+                .Any(user => user.Id == userId
+                    && user.EmployeeId != null
+                    && dbContext.Employees.Any(employee => employee.Id == user.EmployeeId
+                        && (employee.Status == Domain.Employees.EmployeeStatus.Inactive
+                            || employee.Status == Domain.Employees.EmployeeStatus.Deleted))));
 
     private async Task<ResolvedApprover> LineManagerAsync(
         Guid employeeId,

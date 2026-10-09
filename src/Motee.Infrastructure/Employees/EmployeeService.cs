@@ -101,6 +101,14 @@ internal sealed class EmployeeService(
             employees = employees.Where(employee => employee.DepartmentId == departmentId);
         }
 
+        // Applied after Narrow, so a branch filter can only ever reduce what the viewer's
+        // data scope already allows. Filtering before it would let somebody scoped to one
+        // site ask about another.
+        if (query.BranchId is Guid branchId)
+        {
+            employees = employees.Where(employee => employee.BranchId == branchId);
+        }
+
         if (query.EmploymentType is EmploymentType employmentType)
         {
             employees = employees.Where(employee => employee.EmploymentType == employmentType);
@@ -161,6 +169,11 @@ internal sealed class EmployeeService(
                 Department = dbContext.Departments
                     .Where(department => department.Id == employee.DepartmentId)
                     .Select(department => department.Name)
+                    .FirstOrDefault(),
+                BranchId = employee.BranchId,
+                BranchName = dbContext.Branches
+                    .Where(branch => branch.Id == employee.BranchId)
+                    .Select(branch => branch.Name)
                     .FirstOrDefault(),
                 EmploymentType = employee.EmploymentType,
                 WorkMode = employee.WorkMode,
@@ -387,6 +400,13 @@ internal sealed class EmployeeService(
             DataScopeKind.Department => employees.Where(employee =>
                 employee.DepartmentId != null
                 && query.Scope.DepartmentIds.Contains(employee.DepartmentId.Value)),
+
+            // Everyone posted to the named sites. Read straight off the employee rather
+            // than through the department, because the whole point of this axis is that
+            // it cuts across departments — Engineering is in Lagos and London both.
+            DataScopeKind.Branch => employees.Where(employee =>
+                employee.BranchId != null
+                && query.Scope.BranchIds.Contains(employee.BranchId.Value)),
 
             // An employee belongs to a department, and the department to a unit, so
             // this reaches everyone under the named units.
@@ -632,6 +652,7 @@ internal sealed class EmployeeService(
         employee.EmployeeNumber = Trimmed(request.EmployeeNumber);
         employee.JobTitle = Trimmed(request.JobTitle);
         employee.DepartmentId = request.DepartmentId;
+        employee.BranchId = request.BranchId;
         employee.EmploymentType = request.EmploymentType;
         employee.ManagerId = request.ManagerId;
         employee.StartDate = request.StartDate;
@@ -672,6 +693,11 @@ internal sealed class EmployeeService(
             Department = dbContext.Departments
                 .Where(department => department.Id == employee.DepartmentId)
                 .Select(department => department.Name)
+                .FirstOrDefault(),
+            BranchId = employee.BranchId,
+            BranchName = dbContext.Branches
+                .Where(branch => branch.Id == employee.BranchId)
+                .Select(branch => branch.Name)
                 .FirstOrDefault(),
             EmploymentType = employee.EmploymentType,
             ManagerId = employee.ManagerId,

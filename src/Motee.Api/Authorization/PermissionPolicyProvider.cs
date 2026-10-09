@@ -18,6 +18,16 @@ internal sealed class PermissionPolicyProvider(IOptions<AuthorizationOptions> op
 
     public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
+        if (RequiresPlatformAttribute.TryParse(policyName, out string permission, out bool write))
+        {
+            AuthorizationPolicy platform = new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
+                .AddRequirements(new PlatformRequirement(permission, write))
+                .Build();
+
+            return Task.FromResult<AuthorizationPolicy?>(platform);
+        }
+
         if (!RequiresPermissionAttribute.TryParse(policyName, out string module, out PermissionAction action))
         {
             return _fallback.GetPolicyAsync(policyName);

@@ -15,8 +15,7 @@ internal sealed class OnboardingService(
     MoteeDbContext dbContext,
     IApprovalService approvals,
     AvatarLinker avatars,
-    ICurrentTenant currentTenant,
-    IRequestContext requestContext,
+    ICurrentEmployee currentEmployee,
     TimeProvider timeProvider) : IOnboardingService
 {
     // What the engine files these approvals under. The engine never reads it — it stores
@@ -62,20 +61,11 @@ internal sealed class OnboardingService(
 
     public async Task<OnboardingDto?> MineAsync(CancellationToken cancellationToken = default)
     {
-        if (!Guid.TryParse(requestContext.UserId, out Guid userId))
-        {
-            return null;
-        }
-
-        // Users is not tenant-scoped — it cannot be, because login has to find an account
-        // before there is a tenant to scope to — so this clause is the only thing
-        // stopping one company's session reading another's record.
-        Guid? employeeId = await dbContext.Users
-            .Where(user => user.Id == userId && user.TenantId == currentTenant.TenantId)
-            .Select(user => user.EmployeeId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (!employeeId.HasValue)
+        // Resolved through the shared service rather than inline. Users are not
+        // tenant-scoped, so this query needs its own tenant clause, and having one
+        // implementation of it beats repeating the clause per module and eventually
+        // forgetting it.
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid employeeId)
         {
             return null;
         }
@@ -83,7 +73,7 @@ internal sealed class OnboardingService(
         DateOnly today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
 
         return await OneAsync(
-            dbContext.OnboardingRecords.Where(item => item.EmployeeId == employeeId.Value),
+            dbContext.OnboardingRecords.Where(item => item.EmployeeId == employeeId),
             today,
             cancellationToken);
     }

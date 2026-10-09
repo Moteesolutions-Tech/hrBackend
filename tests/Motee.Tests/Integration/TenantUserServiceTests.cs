@@ -57,6 +57,11 @@ public class TenantUserServiceTests(PostgresFixture fixture)
             Id = id,
             TenantId = platformStaff ? null : _tenantId,
             IsPlatformStaff = platformStaff,
+
+            // Set together, because the users table now enforces it: the flag removes
+            // tenant scoping, so granting it without deciding what they may do is a
+            // half-finished grant.
+            PlatformRole = platformStaff ? Motee.Domain.Platform.PlatformRole.Support : null,
             IsOwner = isOwner,
             FirstName = first,
             LastName = "Okafor",

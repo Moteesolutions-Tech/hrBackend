@@ -64,6 +64,16 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     public async Task<IActionResult> Resubmit(Guid id, CancellationToken cancellationToken) =>
         Respond(await approvals.ResubmitAsync(id, cancellationToken));
 
+    // Ask a blocked approval to look again for its approver, once the reason it was stuck
+    // has been dealt with elsewhere — a head appointed, somebody assigned to the level.
+    //
+    // Behind Edit rather than View: it is the only way to unstick a chain short of
+    // cancelling it, and it changes who work is sitting with.
+    [HttpPost("{id:guid}/reresolve")]
+    [RequiresPermission(Module, PermissionAction.Edit)]
+    public async Task<IActionResult> Reresolve(Guid id, CancellationToken cancellationToken) =>
+        Respond(await approvals.ReresolveAsync(id, cancellationToken));
+
     [HttpPost("{id:guid}/cancel")]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Cancel(

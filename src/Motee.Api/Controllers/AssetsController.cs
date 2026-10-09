@@ -113,14 +113,24 @@ public class AssetsController(
 
     [HttpPost("{id:guid}/return")]
     [RequiresPermission(Module, PermissionAction.Edit)]
-    public async Task<IActionResult> Return(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Return(
+        Guid id,
+        [FromBody] ReturnAssetRequest? request,
+        CancellationToken cancellationToken)
     {
-        AssetResult result = await assets.ReturnAsync(id, cancellationToken);
+        AssetResult result = await assets.ReturnAsync(id, request, cancellationToken);
 
         return result.Succeeded
             ? Ok(result.Asset!, "Asset returned.")
             : Failure<AssetDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
     }
+
+    // Who has ever held this. Behind View: it is the asset's own record, and an auditor
+    // with read access to assets needs it without being able to reassign anything.
+    [HttpGet("{id:guid}/history")]
+    [RequiresPermission(Module, PermissionAction.View)]
+    public async Task<IActionResult> History(Guid id, CancellationToken cancellationToken) =>
+        Ok(await assets.HistoryAsync(id, cancellationToken));
 
     // Lost and Retired. There is no delete: an asset that existed stays on the books,
     // because "where did that laptop go" is exactly what an audit asks.

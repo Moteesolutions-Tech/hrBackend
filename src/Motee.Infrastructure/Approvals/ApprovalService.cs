@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Approvals;
 using Motee.Application.Common;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
+using Motee.Domain.Files;
 using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Approvals;
@@ -9,6 +11,8 @@ namespace Motee.Infrastructure.Approvals;
 internal sealed class ApprovalService(
     MoteeDbContext dbContext,
     IApproverResolution resolution,
+    ApprovalAttachmentLinker attachmentLinks,
+    IEnumerable<IApprovalObserver> observers,
     IRequestContext requestContext,
     TimeProvider timeProvider) : IApprovalService
 {
@@ -43,6 +47,14 @@ internal sealed class ApprovalService(
             return ApprovalResult.Failed(ApprovalOutcome.Unstartable);
         }
 
+        // Checked before anything is built. A chain that insists on a fit note should
+        // refuse while the person who has it is still at the keyboard, not leave an
+        // approver to discover the gap days later.
+        if (AttachmentProblem(template.Attachments, request.FileIds) is ApprovalOutcome problem)
+        {
+            return ApprovalResult.Failed(problem, template.Attachments.Note);
+        }
+
         DateTimeOffset now = timeProvider.GetUtcNow();
 
         ApprovalInstance instance = new()
@@ -63,6 +75,28 @@ internal sealed class ApprovalService(
         dbContext.ApprovalInstances.Add(instance);
 
         await BuildStepsAsync(instance, steps, cancellationToken);
+
+        // A chain with nobody behind any of its pending steps can never move. Letting it
+        // start would produce an approval that sits for ever with nobody able to act,
+        // while the module that asked was told it succeeded — so the stall would only
+        // surface when somebody noticed an ageing queue. Refusing says so at the one
+        // moment there is still a person present to fix it.
+        if (Unstartable(instance) is ApprovalStepInstance blocked)
+        {
+            Discard(instance);
+
+            return ApprovalResult.Failed(ApprovalOutcome.Unstartable, blocked.SkippedReason);
+        }
+
+        if (!await AttachAsync(instance, request.FileIds, now, cancellationToken))
+        {
+            // A file id that is not an approval attachment belonging to this tenant.
+            // Refused rather than dropped: silently discarding what somebody attached is
+            // how a fit note goes missing and nobody finds out until the appeal.
+            Discard(instance);
+
+            return ApprovalResult.Failed(ApprovalOutcome.AttachmentNotAllowed);
+        }
 
         // Every step resolved to nobody and none was required, so the whole chain is
         // skippable. Approving it immediately is right — but silently creating a
@@ -149,15 +183,33 @@ internal sealed class ApprovalService(
             return Empty(query);
         }
 
-        // Waiting on this person right now: a pending step resolved to them, on a run
-        // that is still live.
+        // The access levels this person currently holds, for the role steps below.
+        // Evaluated as part of the query rather than fetched first, so the queue reflects
+        // their levels as they are at the moment they open the screen.
+        IQueryable<Guid> myRoles = dbContext.UserAccessLevels
+            .Where(assignment => assignment.UserId == userId)
+            .Join(
+                dbContext.AccessLevels.Where(level => level.Status == AccessLevelStatus.Active),
+                assignment => assignment.AccessLevelId,
+                level => level.Id,
+                (assignment, _) => assignment.AccessLevelId);
+
+        // Waiting on this person right now: a pending step naming them, or naming a role
+        // they hold, on a run that is still live.
+        //
+        // A role step shows up for everybody who can clear it. That is the point of a
+        // queue — but it does mean the same item appears in several people's lists until
+        // one of them acts, which is the behaviour the screen wants and the reason
+        // deciding is guarded again at the moment of the decision.
         IQueryable<ApprovalInstance> waiting = dbContext.ApprovalInstances
             .AsNoTracking()
             .Where(instance => instance.Status == ApprovalStatus.InProgress
                 && dbContext.ApprovalStepInstances.Any(step =>
                     step.InstanceId == instance.Id
                     && step.Status == ApprovalStepStatus.Pending
-                    && step.ResolvedUserId == userId
+                    && (step.ResolvedUserId == userId
+                        || (step.ResolvedRoleId != null
+                            && myRoles.Contains(step.ResolvedRoleId.Value)))
                     && step.Sequence == dbContext.ApprovalStepInstances
                         .Where(pending => pending.InstanceId == instance.Id
                             && pending.Status == ApprovalStepStatus.Pending)
@@ -208,10 +260,15 @@ internal sealed class ApprovalService(
             return ApprovalResult.Failed(ApprovalOutcome.NotAllowed);
         }
 
-        // Only the person it is waiting on. Without this, anyone holding the module
-        // permission could approve anyone's step, and the chain's order would describe
-        // nothing.
-        if (step.ResolvedUserId != CurrentUser())
+        // Only the person it is waiting on, or — for a role step — anyone holding that
+        // access level right now. Without this, anyone with the module permission could
+        // approve anyone's step and the chain's order would describe nothing.
+        //
+        // Role membership is checked here rather than trusted from submission time, which
+        // is what lets somebody who joined the team this morning clear this morning's
+        // queue, and stops somebody who has left from clearing anything.
+        if (CurrentUser() is not Guid actor
+            || !await CanActAsync(step, actor, cancellationToken))
         {
             return ApprovalResult.Failed(ApprovalOutcome.NotTheApprover);
         }
@@ -237,12 +294,36 @@ internal sealed class ApprovalService(
             instance.Status = outcome;
             instance.DecidedAt = now;
         }
+        else
+        {
+            // The chain is moving on, so ask again about any step that had nobody when it
+            // was submitted. A department head appointed while the manager was still
+            // deciding should be found now, rather than the chain reaching that step and
+            // stopping dead against a gap that has already been filled.
+            await ReresolvePendingAsync(instance, cancellationToken);
+        }
 
         instance.UpdatedAt = now;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return ApprovalResult.Ok((await GetAsync(id, cancellationToken))!);
+        ApprovalDto decided = (await GetAsync(id, cancellationToken))!;
+
+        await NotifyAsync(decided, cancellationToken);
+
+        return ApprovalResult.Ok(decided);
+    }
+
+    // Tells whichever module owns this subject that its chain has moved. After the save,
+    // never inside it: an observer that threw mid-transaction would roll back a decision
+    // somebody had legitimately given.
+    private async Task NotifyAsync(ApprovalDto approval, CancellationToken cancellationToken)
+    {
+        foreach (IApprovalObserver observer in observers
+            .Where(candidate => candidate.SubjectType == approval.SubjectType))
+        {
+            await observer.OnSettledAsync(approval, cancellationToken);
+        }
     }
 
     public async Task<ApprovalResult> ResubmitAsync(
@@ -281,9 +362,11 @@ internal sealed class ApprovalService(
             step.SkippedReason = null;
 
             // Re-resolved, not reused: the manager may have changed while it sat with
-            // the submitter, and the new one is who should be asked.
+            // the submitter, and the new one is who should be asked. The role id comes
+            // from the step's own snapshot, so a template edited in the meantime cannot
+            // redirect this round to a different queue.
             ResolvedApprover resolved = await resolution.ResolveAsync(
-                step.Approver, instance.SubjectEmployeeId, cancellationToken);
+                step.Approver, instance.SubjectEmployeeId, step.RoleId, cancellationToken);
 
             Apply(step, resolved);
         }
@@ -335,6 +418,192 @@ internal sealed class ApprovalService(
     }
 
     // Snapshots the template into the run and works out who each step lands on.
+    // Nothing to act on, and something still needing it. Both halves matter:
+    //
+    // A later required step with nobody behind it does not refuse the chain — the steps
+    // before it are real work somebody should get on with, and blocking there with the
+    // reason written on it is how the org chart gets fixed. That is what
+    // ARequiredStepWithNobodyToAskBlocksAndSaysWhy pins down.
+    //
+    // A chain where no pending step has anybody behind it is different: it can never
+    // move at all. And the all-optional case where every step was skipped is different
+    // again — nothing is pending, so it settles as approved rather than being refused.
+    //
+    // Returns the offending step so the caller can pass on the reason it already wrote,
+    // in words somebody can act on: "No line manager is recorded for this employee."
+    private ApprovalStepInstance? Unstartable(ApprovalInstance instance)
+    {
+        List<ApprovalStepInstance> pending =
+        [
+            .. dbContext.ApprovalStepInstances.Local
+                .Where(step => step.InstanceId == instance.Id
+                    && step.Status == ApprovalStepStatus.Pending),
+        ];
+
+        if (pending.Count == 0)
+        {
+            return null;
+        }
+
+        return pending.Any(step => step.ResolvedUserId is not null || step.ResolvedRoleId is not null)
+            ? null
+            : pending[0];
+    }
+
+    // Nothing has been saved, but the context is scoped and may serve another call before
+    // it is disposed. Leaving a half-built approval tracked would let an unrelated
+    // SaveChanges commit the very rows this refused to create.
+    private void Discard(ApprovalInstance instance)
+    {
+        foreach (ApprovalStepInstance step in dbContext.ApprovalStepInstances.Local
+            .Where(step => step.InstanceId == instance.Id)
+            .ToList())
+        {
+            dbContext.Entry(step).State = EntityState.Detached;
+        }
+
+        dbContext.Entry(instance).State = EntityState.Detached;
+    }
+
+    // What the rules say about what was sent. Null when there is nothing wrong.
+    private static ApprovalOutcome? AttachmentProblem(
+        AttachmentRules rules,
+        IReadOnlyList<Guid> fileIds)
+    {
+        if (rules.Required && fileIds.Count == 0)
+        {
+            return ApprovalOutcome.AttachmentRequired;
+        }
+
+        return fileIds.Count > 0 && !rules.Permits
+            ? ApprovalOutcome.AttachmentNotAllowed
+            : null;
+    }
+
+    // Links files already uploaded through the files module. False when any id is not an
+    // approval attachment in this tenant — the tenant filter answers the second half on
+    // its own, so another company's file is simply not found.
+    private async Task<bool> AttachAsync(
+        ApprovalInstance instance,
+        IReadOnlyList<Guid> fileIds,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (fileIds.Count == 0)
+        {
+            return true;
+        }
+
+        List<Guid> wanted = [.. fileIds.Distinct()];
+
+        List<Guid> usable = await dbContext.StoredFiles
+            .Where(file => wanted.Contains(file.Id)
+                && file.Purpose == FilePurpose.ApprovalAttachment)
+            .Select(file => file.Id)
+            .ToListAsync(cancellationToken);
+
+        if (usable.Count != wanted.Count)
+        {
+            return false;
+        }
+
+        foreach (Guid fileId in usable)
+        {
+            dbContext.ApprovalAttachments.Add(new ApprovalAttachment
+            {
+                Id = Guid.NewGuid(),
+                InstanceId = instance.Id,
+                FileId = fileId,
+
+                // Stamped with the round it arrived in, so a note that came only after
+                // the request was returned reads as exactly that.
+                Round = instance.Round,
+                UploadedByUserId = CurrentUser(),
+                UploadedAt = now,
+            });
+        }
+
+        return true;
+    }
+
+    public async Task<ApprovalResult> ReresolveAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        ApprovalInstance? instance = await dbContext.ApprovalInstances
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (instance is null)
+        {
+            return ApprovalResult.Failed(ApprovalOutcome.NotFound);
+        }
+
+        // Only a live run. Asking a finished approval to look again would be asking it to
+        // reopen, which is what resubmitting is for.
+        if (instance.Status != ApprovalStatus.InProgress)
+        {
+            return ApprovalResult.Failed(ApprovalOutcome.NotAllowed);
+        }
+
+        int found = await ReresolvePendingAsync(instance, cancellationToken);
+
+        if (found > 0)
+        {
+            // Recorded, because a step quietly acquiring an approver is exactly the kind
+            // of change somebody will later need to account for.
+            Record(
+                instance,
+                ApprovalEventTypes.Reresolved,
+                null,
+                $"{found} step(s) found an approver.",
+                timeProvider.GetUtcNow());
+
+            instance.UpdatedAt = timeProvider.GetUtcNow();
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return ApprovalResult.Ok((await GetAsync(id, cancellationToken))!);
+    }
+
+    // Asks again for every pending step with nobody behind it, and reports how many found
+    // somebody. Steps already waiting on a named person are left alone: re-resolving
+    // those would move work away from somebody who is looking at it.
+    private async Task<int> ReresolvePendingAsync(
+        ApprovalInstance instance,
+        CancellationToken cancellationToken)
+    {
+        List<ApprovalStepInstance> stuck = await dbContext.ApprovalStepInstances
+            .Where(step => step.InstanceId == instance.Id
+                && step.Status == ApprovalStepStatus.Pending
+                && step.ResolvedUserId == null
+                && step.ResolvedRoleId == null)
+            .ToListAsync(cancellationToken);
+
+        int found = 0;
+
+        foreach (ApprovalStepInstance step in stuck)
+        {
+            ResolvedApprover resolved = await resolution.ResolveAsync(
+                step.Approver, instance.SubjectEmployeeId, step.RoleId, cancellationToken);
+
+            if (!resolved.Found)
+            {
+                // Still nobody. The reason is refreshed rather than left as it was, so a
+                // step that was stuck for one reason and is now stuck for another says
+                // which — "no head recorded" becoming "the head has left" is worth seeing.
+                step.SkippedReason = resolved.Reason;
+                continue;
+            }
+
+            step.SkippedReason = null;
+            Apply(step, resolved);
+            found++;
+        }
+
+        return found;
+    }
+
     private async Task BuildStepsAsync(
         ApprovalInstance instance,
         IReadOnlyList<ApprovalTemplateStep> steps,
@@ -343,7 +612,7 @@ internal sealed class ApprovalService(
         foreach (ApprovalTemplateStep template in steps)
         {
             ResolvedApprover resolved = await resolution.ResolveAsync(
-                template.Approver, instance.SubjectEmployeeId, cancellationToken);
+                template.Approver, instance.SubjectEmployeeId, template.RoleId, cancellationToken);
 
             ApprovalStepInstance step = new()
             {
@@ -356,6 +625,7 @@ internal sealed class ApprovalService(
                 // as they were when the person was asked.
                 Label = template.Label,
                 Approver = template.Approver,
+                RoleId = template.RoleId,
                 Required = template.Required,
                 Status = ApprovalStepStatus.Pending,
             };
@@ -369,17 +639,29 @@ internal sealed class ApprovalService(
     // A step nobody could be found for is skipped when it is optional, and left pending
     // with the reason when it is required — so a required approval never quietly
     // approves itself, and an optional one never blocks.
+    // A step lands either on one person or on a queue, never on both — so this asks the
+    // question that fits whichever kind it is.
+    private async Task<bool> CanActAsync(
+        ApprovalStepInstance step,
+        Guid actor,
+        CancellationToken cancellationToken) =>
+        step.ResolvedRoleId is Guid roleId
+            ? await resolution.HoldsRoleAsync(actor, roleId, cancellationToken)
+            : step.ResolvedUserId == actor;
+
     private static void Apply(ApprovalStepInstance step, ResolvedApprover resolved)
     {
         if (resolved.Found)
         {
             step.ResolvedEmployeeId = resolved.EmployeeId;
             step.ResolvedUserId = resolved.UserId;
+            step.ResolvedRoleId = resolved.RoleId;
             return;
         }
 
         step.ResolvedEmployeeId = null;
         step.ResolvedUserId = null;
+        step.ResolvedRoleId = null;
         step.SkippedReason = resolved.Reason;
 
         if (!step.Required)
@@ -463,10 +745,20 @@ internal sealed class ApprovalService(
                 Approver = step.Approver,
                 Required = step.Required,
                 ResolvedEmployeeId = step.ResolvedEmployeeId,
-                ResolvedName = dbContext.Employees
-                    .Where(employee => employee.Id == step.ResolvedEmployeeId)
-                    .Select(employee => employee.FirstName + " " + employee.LastName)
-                    .FirstOrDefault(),
+
+                // A person's name, or the access level's. One or the other is set, and a
+                // screen shows "with Ada Okafor" or "with HR Admin" from the same field
+                // rather than branching on which kind of step it is.
+                ResolvedName = step.ResolvedRoleId != null
+                    ? dbContext.AccessLevels
+                        .Where(level => level.Id == step.ResolvedRoleId)
+                        .Select(level => level.Name)
+                        .FirstOrDefault()
+                    : dbContext.Employees
+                        .Where(employee => employee.Id == step.ResolvedEmployeeId)
+                        .Select(employee => employee.FirstName + " " + employee.LastName)
+                        .FirstOrDefault(),
+                ResolvedRoleId = step.ResolvedRoleId,
                 Status = step.Status,
                 DecidedAt = step.DecidedAt,
                 Note = step.Note,
@@ -489,6 +781,73 @@ internal sealed class ApprovalService(
             })
             .ToListAsync(cancellationToken);
 
+        List<ApprovalAttachmentDto> attachments = await dbContext.ApprovalAttachments
+            .AsNoTracking()
+            .Where(attachment => attachment.InstanceId == instance.Id)
+
+            // Newest round first: what arrived most recently is what an approver looking
+            // at this now has not yet seen.
+            .OrderByDescending(attachment => attachment.Round)
+            .ThenByDescending(attachment => attachment.UploadedAt)
+            .Select(attachment => new ApprovalAttachmentDto
+            {
+                Id = attachment.Id,
+                FileId = attachment.FileId,
+                FileName = dbContext.StoredFiles
+                    .Where(file => file.Id == attachment.FileId)
+                    .Select(file => file.FileName)
+                    .FirstOrDefault() ?? "Unknown",
+                ContentType = dbContext.StoredFiles
+                    .Where(file => file.Id == attachment.FileId)
+                    .Select(file => file.ContentType)
+                    .FirstOrDefault() ?? "application/octet-stream",
+                SizeBytes = dbContext.StoredFiles
+                    .Where(file => file.Id == attachment.FileId)
+                    .Select(file => file.SizeBytes)
+                    .FirstOrDefault(),
+                UploadedByName = dbContext.Users
+                    .Where(user => user.Id == attachment.UploadedByUserId)
+                    .Select(user => user.FirstName + " " + user.LastName)
+                    .FirstOrDefault(),
+                Round = attachment.Round,
+                UploadedAt = attachment.UploadedAt,
+
+                // Signed after the query. A link with a lifetime cannot come out of a
+                // projection.
+                Url = null,
+            })
+            .ToListAsync(cancellationToken);
+
+        if (attachments.Count > 0)
+        {
+            IReadOnlyDictionary<Guid, string> urls = await attachmentLinks.UrlsForAsync(
+                attachments.Select(attachment => attachment.FileId), cancellationToken);
+
+            attachments =
+            [
+                .. attachments.Select(attachment =>
+                    urls.TryGetValue(attachment.FileId, out string? url)
+                        ? attachment with { Url = url }
+                        : attachment),
+            ];
+        }
+
+        // The rules are read through from the template rather than snapshotted onto the
+        // instance. They are validation, applied at the moment somebody submits — unlike
+        // the steps, which are state and must not shift under a running chain.
+        AttachmentRules rules = await dbContext.ApprovalTemplates
+            .AsNoTracking()
+            .Where(template => template.Id == instance.TemplateId)
+            .Select(template => template.Attachments)
+            .FirstOrDefaultAsync(cancellationToken) ?? AttachmentRules.None;
+
+        // The step it is stopped against, if it is stopped: pending, and with neither a
+        // person nor a queue behind it.
+        ApprovalStepDto? blocked = steps.FirstOrDefault(step =>
+            step.Status == ApprovalStepStatus.Pending
+            && step.ResolvedEmployeeId is null
+            && step.ResolvedRoleId is null);
+
         return new ApprovalDto
         {
             Id = instance.Id,
@@ -502,6 +861,14 @@ internal sealed class ApprovalService(
             CurrentStep = instance.Status == ApprovalStatus.InProgress
                 ? steps.FirstOrDefault(step => step.Status == ApprovalStepStatus.Pending)
                 : null,
+
+            // Live, and the step it is waiting on has nobody behind it. Derived rather
+            // than stored: the thing that fixes it — appointing a head, assigning a level
+            // — happens elsewhere entirely and would never come back to clear a flag.
+            IsBlocked = instance.Status == ApprovalStatus.InProgress && blocked is not null,
+            BlockedReason = blocked?.SkippedReason,
+            Attachments = attachments,
+            AttachmentRules = rules,
             AvailableActions = ApprovalLifecycle.AvailableFrom(instance.Status),
             History = history,
             SubmittedAt = instance.SubmittedAt,

@@ -26,12 +26,10 @@ public static class TokenClaimsBuilder
             claims.Add(new Claim(MoteeClaimTypes.EmployeeId, employeeId.ToString()));
         }
 
-        {
-        }
-
         if (subject.IsPlatformStaff)
         {
             claims.Add(new Claim(MoteeClaimTypes.IsPlatformStaff, "true"));
+            claims.Add(new Claim(MoteeClaimTypes.PlatformRole, subject.PlatformRole!.ToString()!));
         }
 
         return claims;
@@ -51,6 +49,22 @@ public static class TokenClaimsBuilder
         {
             throw new InvalidOperationException(
                 "A tenant user must have a tenant; a token without one bypasses the tenant filter.");
+        }
+
+        // The flag is what excludes them from the tenant filter; the role is what decides
+        // which platform endpoints they reach. Staff without a role would be outside every
+        // tenant and authorised for nothing — an account that can sign in and do nothing
+        // at all, which looks like a permissions bug and gets "fixed" by granting Admin.
+        if (subject.IsPlatformStaff && subject.PlatformRole is null)
+        {
+            throw new InvalidOperationException(
+                "Platform staff must carry a platform role; without one they can reach nothing.");
+        }
+
+        if (!subject.IsPlatformStaff && subject.PlatformRole is not null)
+        {
+            throw new InvalidOperationException(
+                "A platform role on a tenant user grants nothing and misrepresents them.");
         }
     }
 }

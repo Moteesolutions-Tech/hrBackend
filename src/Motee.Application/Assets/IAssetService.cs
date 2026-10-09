@@ -27,7 +27,16 @@ public interface IAssetService
         AssignAssetRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<AssetResult> ReturnAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<AssetResult> ReturnAsync(
+        Guid id,
+        ReturnAssetRequest? request = null,
+        CancellationToken cancellationToken = default);
+
+    // Every spell somebody has held this asset, newest first. The question an audit asks,
+    // and the one the asset row itself cannot answer — it holds only who has it now.
+    Task<IReadOnlyList<AssetAssignmentDto>> HistoryAsync(
+        Guid assetId,
+        CancellationToken cancellationToken = default);
 
     Task<AssetResult> ChangeStatusAsync(
         Guid id,
@@ -95,6 +104,44 @@ public sealed record AssignAssetRequest
     public required Guid EmployeeId { get; init; }
 
     public DateOnly? AssignedDate { get; init; }
+
+    // What state it was in when handed over. Paired with the condition on return, this is
+    // what supports a deduction or a write-off; either on its own proves nothing.
+    public string? Condition { get; init; }
+}
+
+public sealed record ReturnAssetRequest
+{
+    public DateOnly? ReturnedOn { get; init; }
+
+    public string? Reason { get; init; }
+
+    public string? Condition { get; init; }
+}
+
+public sealed record AssetAssignmentDto
+{
+    public required Guid Id { get; init; }
+
+    public required Guid EmployeeId { get; init; }
+
+    public required string EmployeeName { get; init; }
+
+    public required DateOnly AssignedOn { get; init; }
+
+    public DateOnly? ReturnedOn { get; init; }
+
+    public string? ReturnReason { get; init; }
+
+    public string? ConditionOnAssign { get; init; }
+
+    public string? ConditionOnReturn { get; init; }
+
+    // Null while they still hold it, so a screen can show "142 days" or "since 3 June"
+    // without working out which case it is in.
+    public int? HeldDays { get; init; }
+
+    public required bool IsOpen { get; init; }
 }
 
 public sealed record AssetResult

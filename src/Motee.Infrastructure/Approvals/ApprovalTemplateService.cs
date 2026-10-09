@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Approvals;
 using Motee.Application.Common;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Approvals;
@@ -60,6 +61,11 @@ internal sealed class ApprovalTemplateService(
             return ApprovalTemplateResult.Failed(ApprovalTemplateOutcome.NoSteps);
         }
 
+        if (!await RolesExistAsync(request.Steps, cancellationToken))
+        {
+            return ApprovalTemplateResult.Failed(ApprovalTemplateOutcome.RoleMissing);
+        }
+
         if (await NameTakenAsync(request.DocumentType, request.Name, null, cancellationToken))
         {
             return ApprovalTemplateResult.Failed(ApprovalTemplateOutcome.DuplicateName);
@@ -76,6 +82,7 @@ internal sealed class ApprovalTemplateService(
             IsDefault = request.IsDefault,
             IsSystem = false,
             IsActive = request.IsActive,
+            Attachments = request.Attachments,
             CreatedAt = now,
             UpdatedAt = now,
             UpdatedByUserId = CurrentUser(),
@@ -121,6 +128,11 @@ internal sealed class ApprovalTemplateService(
             return ApprovalTemplateResult.Failed(ApprovalTemplateOutcome.NoSteps);
         }
 
+        if (!await RolesExistAsync(request.Steps, cancellationToken))
+        {
+            return ApprovalTemplateResult.Failed(ApprovalTemplateOutcome.RoleMissing);
+        }
+
         if (await NameTakenAsync(request.DocumentType, request.Name, id, cancellationToken))
         {
             return ApprovalTemplateResult.Failed(ApprovalTemplateOutcome.DuplicateName);
@@ -136,6 +148,7 @@ internal sealed class ApprovalTemplateService(
         template.Description = Trimmed(request.Description);
         template.IsDefault = request.IsDefault;
         template.IsActive = request.IsActive;
+        template.Attachments = request.Attachments;
         template.UpdatedAt = timeProvider.GetUtcNow();
         template.UpdatedByUserId = CurrentUser();
 
@@ -193,6 +206,51 @@ internal sealed class ApprovalTemplateService(
     // Sequences are rewritten contiguously from zero rather than taken from the client.
     // Gaps and duplicates make "the next step" ambiguous, and the unique index would
     // reject the duplicate anyway — with an error nobody could act on.
+    public async Task<IReadOnlyList<ApprovalRoleDto>> RolesAsync(
+        CancellationToken cancellationToken = default) =>
+        await dbContext.AccessLevels
+            .AsNoTracking()
+            .Where(level => level.Status == AccessLevelStatus.Active)
+            .OrderBy(level => level.Name)
+            .Select(level => new ApprovalRoleDto
+            {
+                Id = level.Id,
+                Name = level.Name,
+                Holders = dbContext.UserAccessLevels
+                    .Count(assignment => assignment.AccessLevelId == level.Id),
+            })
+            .ToListAsync(cancellationToken);
+
+    // Every Role step has to name a level that exists in this tenant. The tenant filter
+    // does that second half on its own: an id from another company simply is not found,
+    // which is the same answer as an id that is nonsense.
+    private async Task<bool> RolesExistAsync(
+        IReadOnlyList<ApprovalTemplateStepRequest> steps,
+        CancellationToken cancellationToken)
+    {
+        List<Guid> named =
+        [
+            .. steps
+                .Where(step => step.Approver == ApproverResolver.Role)
+                .Select(step => step.RoleId ?? Guid.Empty),
+        ];
+
+        if (named.Count == 0)
+        {
+            return true;
+        }
+
+        if (named.Contains(Guid.Empty))
+        {
+            return false;
+        }
+
+        int found = await dbContext.AccessLevels
+            .CountAsync(level => named.Contains(level.Id), cancellationToken);
+
+        return found == named.Distinct().Count();
+    }
+
     private void WriteSteps(Guid templateId, IReadOnlyList<ApprovalTemplateStepRequest> steps)
     {
         for (int index = 0; index < steps.Count; index++)
@@ -204,6 +262,13 @@ internal sealed class ApprovalTemplateService(
                 Sequence = index,
                 Label = steps[index].Label.Trim(),
                 Approver = steps[index].Approver,
+
+                // Kept only where it means something. A role id left on a step later
+                // switched to "line manager" would sit there looking authoritative and
+                // be read by nothing.
+                RoleId = steps[index].Approver == ApproverResolver.Role
+                    ? steps[index].RoleId
+                    : null,
                 Required = steps[index].Required,
             });
         }
@@ -259,6 +324,11 @@ internal sealed class ApprovalTemplateService(
                 Sequence = step.Sequence,
                 Label = step.Label,
                 Approver = step.Approver,
+                RoleId = step.RoleId,
+                RoleName = dbContext.AccessLevels
+                    .Where(level => level.Id == step.RoleId)
+                    .Select(level => level.Name)
+                    .FirstOrDefault(),
                 Required = step.Required,
             })
             .ToListAsync(cancellationToken);
@@ -280,6 +350,7 @@ internal sealed class ApprovalTemplateService(
             IsDefault = template.IsDefault,
             IsSystem = template.IsSystem,
             IsActive = template.IsActive,
+            Attachments = template.Attachments,
             Steps = steps,
             RunningInstances = running,
             UpdatedAt = template.UpdatedAt,

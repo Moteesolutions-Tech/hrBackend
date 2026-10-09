@@ -27,13 +27,23 @@ public static class ApprovalDocumentTypes
 // outlives the people in it. "The line manager" stays correct when someone changes jobs;
 // a named approver does not.
 //
-// Phase 1 resolves the two positional ones. ROLE:{id} comes with phase 2, and the enum
-// is deliberately not extended until the resolver behind it exists — an option the
-// interface offers and the backend cannot honour is worse than one it does not offer.
+// The two positional rules answer "relative to whom" and land on exactly one person.
+// Role does not, and that difference runs through the whole engine: a role step is a
+// queue anyone holding that access level can act on, and the first to decide decides.
 public enum ApproverResolver
 {
     LineManager,
     DepartmentHead,
+
+    // Whoever holds a given access level — "someone in HR", "someone in Finance". The
+    // level itself is named by ApprovalTemplateStep.RoleId; this enum says only that the
+    // step is answered by a role rather than by a position in the org chart.
+    //
+    // Membership is read when somebody tries to act, never snapshotted at submission.
+    // Freezing the members would recreate the exact problem the positional resolvers
+    // already guard against: an approval left waiting on somebody who has since left,
+    // while their replacement sits looking at an empty queue.
+    Role,
 }
 
 public enum ApprovalStatus
