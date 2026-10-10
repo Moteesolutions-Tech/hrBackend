@@ -29,7 +29,7 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
     {
         operation.Responses ??= [];
 
-        WrapDeclared(operation);
+        WrapDeclared(operation, context.Document);
         AddFailures(operation, context);
 
         return Task.CompletedTask;
@@ -43,7 +43,7 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
     // carrying its payload — "here is the pack, and here is what is still missing" — sends
     // that enveloped like everything else, and documenting the bare payload there would be
     // a shape the API never produces.
-    private static void WrapDeclared(OpenApiOperation operation)
+    private static void WrapDeclared(OpenApiOperation operation, OpenApiDocument? document)
     {
         foreach ((string status, IOpenApiResponse response) in operation.Responses!.ToList())
         {
@@ -72,7 +72,12 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
                         succeeded
                             ? created ? "Created." : "Request successful."
                             : "The message names what went wrong.",
-                        data: payload is null ? null : new JsonObject()),
+
+                        // Generated from the declared schema rather than left as {}. An
+                        // explicit example overrides the one the UI would derive, so an
+                        // empty object here would hide the shape somebody opened the page
+                        // to read.
+                        data: SchemaSample.For(payload, document)),
                 },
             };
 
