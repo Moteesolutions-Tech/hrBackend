@@ -6,7 +6,9 @@ using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Approvals;
 
-internal sealed class ApproverResolution(MoteeDbContext dbContext) : IApproverResolution
+internal sealed class ApproverResolution(
+    MoteeDbContext dbContext,
+    TimeProvider timeProvider) : IApproverResolution
 {
     public async Task<ResolvedApprover> ResolveAsync(
         ApproverResolver resolver,
@@ -180,7 +182,78 @@ internal sealed class ApproverResolution(MoteeDbContext dbContext) : IApproverRe
         return await DescribeAsync(head, cancellationToken);
     }
 
+    // Resolves a person, then applies any delegation they have set.
+    //
+    // The two are separate methods on purpose: the delegation lookup has to resolve the
+    // delegate, and if it called this it would apply the delegate's own delegation and
+    // keep going. DescribeDirectAsync is the version that stops.
     private async Task<ResolvedApprover> DescribeAsync(
+        Guid employeeId,
+        CancellationToken cancellationToken)
+    {
+        ResolvedApprover resolved = await DescribeDirectAsync(employeeId, cancellationToken);
+
+        if (!resolved.Found)
+        {
+            return resolved;
+        }
+
+        // Applied only once the original approver is known to be actionable. A delegation
+        // set by somebody who has since left should not redirect anything.
+        return await DelegatedAsync(employeeId, resolved.Name!, cancellationToken) ?? resolved;
+    }
+
+    // Whoever this person has delegated their approvals to today, or null to leave the
+    // step where it was.
+    //
+    // Deliberately not recursive. If A delegates to B and B delegates to C, this stops at
+    // B: a chain of delegations is how work ends up with somebody three steps removed who
+    // has no idea why they have it, and a cycle would not terminate at all.
+    private async Task<ResolvedApprover?> DelegatedAsync(
+        Guid approverEmployeeId,
+        string approverName,
+        CancellationToken cancellationToken)
+    {
+        DateOnly today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+
+        ApprovalDelegation? delegation = await dbContext.ApprovalDelegations
+            .AsNoTracking()
+            .Where(candidate => candidate.DelegatorEmployeeId == approverEmployeeId
+                && candidate.StartDate <= today
+                && candidate.EndDate >= today)
+            .OrderBy(candidate => candidate.StartDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (delegation is null)
+        {
+            return null;
+        }
+
+        ResolvedApprover delegate_ = await DescribeDirectAsync(
+            delegation.DelegateEmployeeId, cancellationToken);
+
+        // The delegate has left, or never had an account. Falling through to the original
+        // approver is better than stranding the step on somebody who cannot act — the
+        // delegator may be away, but their queue at least exists.
+        if (!delegate_.Found)
+        {
+            return null;
+        }
+
+        return delegate_ with
+        {
+            Delegation = new StepDelegation
+            {
+                FromEmployeeId = approverEmployeeId,
+                FromName = approverName,
+                Reason = delegation.Reason,
+                PeriodStart = delegation.StartDate,
+                PeriodEnd = delegation.EndDate,
+            },
+        };
+    }
+
+    private async Task<ResolvedApprover> DescribeDirectAsync(
         Guid employeeId,
         CancellationToken cancellationToken)
     {

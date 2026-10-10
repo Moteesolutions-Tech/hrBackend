@@ -511,6 +511,35 @@ internal sealed class EmployeeInvitationService(
     // The joiner is anonymous, so no tenant is resolved and the global filter would
     // match nothing. The token is the credential; it identifies the tenant, not the
     // other way round.
+    public async Task<JoinerScope?> ScopeAsync(
+        string token,
+        CancellationToken cancellationToken = default)
+    {
+        EmployeeInvitation? invitation = await FindAsync(token, cancellationToken);
+
+        if (invitation is null)
+        {
+            return null;
+        }
+
+        // Filters ignored for the same reason PreviewAsync ignores them: there is no
+        // tenant on the request, and the token is what establishes which one applies.
+        Guid? recordId = await dbContext.OnboardingRecords
+            .IgnoreQueryFilters()
+            .Where(record => record.EmployeeId == invitation.EmployeeId
+                && record.TenantId == invitation.TenantId)
+            .Select(record => (Guid?)record.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new JoinerScope
+        {
+            Outcome = InvitationPolicy.Evaluate(invitation, timeProvider.GetUtcNow()),
+            TenantId = invitation.TenantId,
+            EmployeeId = invitation.EmployeeId,
+            OnboardingRecordId = recordId,
+        };
+    }
+
     private Task<EmployeeInvitation?> FindAsync(string token, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(token))

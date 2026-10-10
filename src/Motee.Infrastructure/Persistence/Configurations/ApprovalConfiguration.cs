@@ -141,9 +141,58 @@ internal sealed class ApprovalStepInstanceConfiguration
             .HasDatabaseName("ix_approval_steps_role")
             .HasFilter("resolved_role_id IS NOT NULL");
 
+        // Owned: five columns describing this step's redirect, never queried on their own.
+        builder.OwnsOne(step => step.Delegation, delegation =>
+        {
+            delegation.Property(value => value.FromEmployeeId)
+                .HasColumnName("delegated_from_employee_id");
+            delegation.Property(value => value.FromName)
+                .HasColumnName("delegated_from_name").HasMaxLength(200);
+            delegation.Property(value => value.Reason)
+                .HasColumnName("delegation_reason").HasMaxLength(300);
+            delegation.Property(value => value.PeriodStart)
+                .HasColumnName("delegation_period_start");
+            delegation.Property(value => value.PeriodEnd)
+                .HasColumnName("delegation_period_end");
+        });
+
         // The queue query: what is waiting on me.
         builder.HasIndex(step => new { step.TenantId, step.ResolvedUserId, step.Status })
             .HasDatabaseName("ix_approval_step_instances_queue");
+    }
+}
+
+internal sealed class ApprovalDelegationConfiguration : IEntityTypeConfiguration<ApprovalDelegation>
+{
+    public void Configure(EntityTypeBuilder<ApprovalDelegation> builder)
+    {
+        builder.ToTable("approval_delegations");
+
+        builder.HasKey(delegation => delegation.Id);
+
+        builder.Property(delegation => delegation.Reason).HasMaxLength(300);
+
+        // RESTRICT both ways. Deleting somebody who has delegated, or been delegated to,
+        // is the deletion that should be stopped — silently dropping the arrangement
+        // would route work back to a queue nobody is watching.
+        builder.HasOne<Domain.Employees.Employee>()
+            .WithMany()
+            .HasForeignKey(delegation => delegation.DelegatorEmployeeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Domain.Employees.Employee>()
+            .WithMany()
+            .HasForeignKey(delegation => delegation.DelegateEmployeeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // The query every resolution runs: has this person delegated today. On the
+        // resolution path of every approval start, so it is worth the index.
+        builder.HasIndex(delegation => new
+        {
+            delegation.DelegatorEmployeeId,
+            delegation.StartDate,
+            delegation.EndDate,
+        }).HasDatabaseName("ix_approval_delegations_active");
     }
 }
 

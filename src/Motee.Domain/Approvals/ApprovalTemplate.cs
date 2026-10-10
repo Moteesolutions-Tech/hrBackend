@@ -192,6 +192,14 @@ public class ApprovalStepInstance : ITenantScoped
     // Why it was passed over, when it was. "on_leave" arrives with phase 3;
     // "unresolved" is the phase 1 case of nobody to ask.
     public string? SkippedReason { get; set; }
+
+    // Set when a delegation redirected this step. The resolved approver is the delegate;
+    // this says who it would have been, and why it was not.
+    //
+    // On the step rather than looked up from the delegation later, because delegations
+    // expire and get deleted — and the decision has to keep explaining itself after the
+    // arrangement that caused it has gone.
+    public StepDelegation? Delegation { get; set; }
 }
 
 // Everything that happened, in order. The instance says where it got to; this says how

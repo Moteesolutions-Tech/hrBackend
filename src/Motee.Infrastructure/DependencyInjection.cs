@@ -74,10 +74,12 @@ public static class DependencyInjection
         services.AddScoped<IBranchService, BranchService>();
         services.AddScoped<IBusinessUnitService, BusinessUnitService>();
         services.AddScoped<Application.Onboarding.IOnboardingService, Onboarding.OnboardingService>();
+        services.AddScoped<Application.Onboarding.IJoinerPackService, Onboarding.JoinerPackService>();
         services.AddScoped<Application.Offboarding.IOffboardingService, Offboarding.OffboardingService>();
         services.AddScoped<Application.Approvals.IApproverResolution, Approvals.ApproverResolution>();
         services.AddScoped<Application.Approvals.IApprovalService, Approvals.ApprovalService>();
         services.AddScoped<Application.Approvals.IApprovalTemplateService, Approvals.ApprovalTemplateService>();
+        services.AddScoped<Application.Approvals.IApprovalDelegationService, Approvals.ApprovalDelegationService>();
         services.AddScoped<Approvals.ApprovalTemplateSeeder>();
         services.AddScoped<Approvals.ApprovalAttachmentLinker>();
         services.AddScoped<Leave.LeaveSeeder>();

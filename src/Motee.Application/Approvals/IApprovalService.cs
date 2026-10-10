@@ -366,6 +366,11 @@ public sealed record ApprovalStepDto
 
     // Why nobody was asked. Written in words, so a skipped step explains itself.
     public string? SkippedReason { get; init; }
+
+    // Set when a delegation redirected this step. Lets a screen say "Approved by Cara, on
+    // behalf of Ada — Annual leave, 3–10 July" rather than leaving a decision that looks
+    // like it came from the wrong person.
+    public StepDelegation? Delegation { get; init; }
 }
 
 public sealed record ApprovalAttachmentDto
