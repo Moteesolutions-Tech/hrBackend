@@ -43,6 +43,7 @@ builder.Services.AddOpenApi(ApiVersioningSetup.CurrentVersion, options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     options.AddOperationTransformer<AuthorizeSecurityRequirementTransformer>();
+    options.AddOperationTransformer<EnvelopeResponsesTransformer>();
     options.AddSchemaTransformer<NumericSchemaTransformer>();
     options.AddSchemaTransformer<EnumSchemaTransformer>();
     options.AddDocumentTransformer<NullableRefSchemaTransformer>();

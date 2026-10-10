@@ -44,17 +44,24 @@ public class ServiceResponseTests
         Assert.Null(response.Data);
     }
 
-    // The frontend reads snake_case keys; the camelCase policy must not rewrite them.
+    // One convention across the whole response. The envelope used to carry explicit
+    // snake_case names, which left responseCode spelled differently from every payload
+    // field beside it — and a client destructuring both from the same object should not
+    // have to remember which convention each belongs to.
     [Fact]
-    public void SerialisesWithTheAgreedKeyNames()
+    public void SerialisesEverythingInCamelCase()
     {
         string json = JsonSerializer.Serialize(
             ServiceResponse<Payload>.Ok(new Payload("Ada")), Options);
 
-        Assert.Contains("\"response_code\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"responseCode\"", json, StringComparison.Ordinal);
         Assert.Contains("\"success\"", json, StringComparison.Ordinal);
         Assert.Contains("\"message\"", json, StringComparison.Ordinal);
         Assert.Contains("\"data\"", json, StringComparison.Ordinal);
+
+        // The old spelling is gone rather than accepted alongside: two names for one
+        // field is how half a client ends up reading the one that stops being sent.
+        Assert.DoesNotContain("response_code", json, StringComparison.Ordinal);
     }
 
     // Nested payload properties still follow the camelCase policy.
