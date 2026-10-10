@@ -319,7 +319,7 @@ public class AuthController(
     }
 
     [HttpGet("me")]
-    [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Tenant>(StatusCodes.Status200OK)]
     [Authorize]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {

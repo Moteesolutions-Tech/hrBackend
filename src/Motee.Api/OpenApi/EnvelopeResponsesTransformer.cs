@@ -29,11 +29,51 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
     {
         operation.Responses ??= [];
 
+        DropImplicitSuccess(operation);
         WrapDeclared(operation, context.Document);
         AddFailures(operation, context);
 
         return Task.CompletedTask;
     }
+
+    // An action that declares only a 201 still gets an implicit 200 from the framework,
+    // which arrives with no schema. Left in, the document offers two success codes where
+    // the endpoint has one, and the empty one is the one a reader opens first.
+    //
+    // Only ever drops the shapeless member of a pair, and only when a sibling has a
+    // shape — an endpoint that genuinely returns 200 or 204 keeps both.
+    private static void DropImplicitSuccess(OpenApiOperation operation)
+    {
+        List<KeyValuePair<string, IOpenApiResponse>> successes =
+        [
+            .. operation.Responses!.Where(entry => entry.Key.StartsWith('2')),
+        ];
+
+        if (successes.Count < 2)
+        {
+            return;
+        }
+
+        bool anyWithSchema = successes.Any(entry => HasSchema(entry.Value));
+
+        if (!anyWithSchema)
+        {
+            return;
+        }
+
+        foreach ((string status, IOpenApiResponse response) in successes)
+        {
+            if (!HasSchema(response))
+            {
+                operation.Responses!.Remove(status);
+            }
+        }
+    }
+
+    private static bool HasSchema(IOpenApiResponse response) =>
+        response is OpenApiResponse concrete
+        && concrete.Content?.TryGetValue(Json, out OpenApiMediaType? media) == true
+        && media.Schema is not null;
 
     // The declared payload becomes the envelope's "data". Whatever the generator worked
     // out from ProducesResponseType is kept and nested rather than replaced, so adding

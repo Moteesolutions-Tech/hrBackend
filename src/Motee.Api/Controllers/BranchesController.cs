@@ -17,11 +17,13 @@ public class BranchesController(IBranchService branches) : ApiControllerBase
     private const string Module = "organization.structure";
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<BranchDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(CancellationToken cancellationToken) =>
         Ok(await branches.ListAsync(cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<BranchDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -33,6 +35,7 @@ public class BranchesController(IBranchService branches) : ApiControllerBase
     }
 
     [HttpPost]
+    [ProducesResponseType<BranchDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Create(
         BranchRequest request,
@@ -40,6 +43,7 @@ public class BranchesController(IBranchService branches) : ApiControllerBase
         Respond(await branches.CreateAsync(request, cancellationToken), created: true);
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<BranchDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -48,6 +52,7 @@ public class BranchesController(IBranchService branches) : ApiControllerBase
         Respond(await branches.UpdateAsync(id, request, cancellationToken));
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

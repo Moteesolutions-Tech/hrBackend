@@ -2,6 +2,7 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Motee.Api.Authorization;
 using Motee.Api.Contracts;
+using Motee.Application.Common;
 using Motee.Application.Offboarding;
 using Motee.Domain.Authorization;
 using Motee.Domain.Offboarding;
@@ -16,6 +17,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
     private const string Module = "talent.offboarding";
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<OffboardingListItemDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] OffboardingQuery query,
@@ -23,11 +25,13 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
         Ok(await offboarding.ListAsync(query, cancellationToken));
 
     [HttpGet("stats")]
+    [ProducesResponseType<OffboardingStatsDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Stats(CancellationToken cancellationToken) =>
         Ok(await offboarding.StatsAsync(cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -39,6 +43,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
     }
 
     [HttpPost]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Initiate(
         InitiateOffboardingRequest request,
@@ -46,6 +51,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
         Respond(await offboarding.InitiateAsync(request, cancellationToken), created: true);
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -55,6 +61,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
 
 
     [HttpPost("{id:guid}/actions/{action}")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Apply(
         Guid id,
@@ -64,6 +71,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
         Respond(await offboarding.ApplyAsync(id, action, request?.Reason, cancellationToken));
 
     [HttpPost("{id:guid}/clearance/{itemId:guid}")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> CompleteClearance(
         Guid id,
@@ -76,11 +84,13 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
     // end. Behind Administer rather than Edit, because ticking a checklist and cutting
     // somebody's access are not the same responsibility.
     [HttpPost("{id:guid}/revoke-access")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Administer)]
     public async Task<IActionResult> RevokeAccess(Guid id, CancellationToken cancellationToken) =>
         Respond(await offboarding.RevokeAccessAsync(id, cancellationToken));
 
     [HttpPost("{id:guid}/exit-interview/schedule")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> ScheduleExitInterview(
         Guid id,
@@ -89,6 +99,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
         Respond(await offboarding.ScheduleExitInterviewAsync(id, request.ScheduledAt, cancellationToken));
 
     [HttpPost("{id:guid}/exit-interview/complete")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> CompleteExitInterview(
         Guid id,
@@ -97,6 +108,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
         Respond(await offboarding.CompleteExitInterviewAsync(id, request?.Notes, cancellationToken));
 
     [HttpPost("{id:guid}/exit-documents")]
+    [ProducesResponseType<OffboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> GenerateExitDocuments(
         Guid id,
@@ -104,6 +116,7 @@ public class OffboardingController(IOffboardingService offboarding) : ApiControl
         Respond(await offboarding.GenerateExitDocumentsAsync(id, cancellationToken));
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

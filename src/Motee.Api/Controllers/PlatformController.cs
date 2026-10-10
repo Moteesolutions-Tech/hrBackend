@@ -20,6 +20,7 @@ namespace Motee.Api.Controllers;
 public class PlatformController(IPlatformService platform) : ApiControllerBase
 {
     [HttpGet("tenants")]
+    [ProducesResponseType<PagedResult<PlatformTenantDto>>(StatusCodes.Status200OK)]
     [RequiresPlatform(PlatformPermissions.Tenants)]
     public async Task<IActionResult> Tenants(
         [FromQuery] PagedQuery query,
@@ -27,6 +28,7 @@ public class PlatformController(IPlatformService platform) : ApiControllerBase
         Ok(await platform.ListTenantsAsync(query, cancellationToken));
 
     [HttpGet("tenants/{id:guid}")]
+    [ProducesResponseType<PlatformTenantDto>(StatusCodes.Status200OK)]
     [RequiresPlatform(PlatformPermissions.Tenants)]
     public async Task<IActionResult> Tenant(Guid id, CancellationToken cancellationToken)
     {
@@ -38,6 +40,7 @@ public class PlatformController(IPlatformService platform) : ApiControllerBase
     }
 
     [HttpGet("staff")]
+    [ProducesResponseType<IReadOnlyList<PlatformStaffDto>>(StatusCodes.Status200OK)]
     [RequiresPlatform(PlatformPermissions.Staff)]
     public async Task<IActionResult> Staff(CancellationToken cancellationToken) =>
         Ok(await platform.ListStaffAsync(cancellationToken));
@@ -46,6 +49,7 @@ public class PlatformController(IPlatformService platform) : ApiControllerBase
     // an operator signs up like anyone else, verifies their address and sets their own
     // password, and is then granted a role here.
     [HttpPost("staff")]
+    [ProducesResponseType<PlatformStaffDto>(StatusCodes.Status200OK)]
     [RequiresPlatform(PlatformPermissions.Staff, write: true)]
     public async Task<IActionResult> Grant(
         GrantPlatformRoleRequest request,
@@ -60,6 +64,7 @@ public class PlatformController(IPlatformService platform) : ApiControllerBase
     }
 
     [HttpDelete("staff/{userId:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPlatform(PlatformPermissions.Staff, write: true)]
     public async Task<IActionResult> Revoke(Guid userId, CancellationToken cancellationToken)
     {

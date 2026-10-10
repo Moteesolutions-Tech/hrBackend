@@ -17,11 +17,13 @@ public class DepartmentsController(
     IValidator<DepartmentRequest> validator) : ApiControllerBase
 {
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<DepartmentDto>>(StatusCodes.Status200OK)]
     [RequiresPermission("organization.departments", PermissionAction.View)]
     public async Task<IActionResult> List(CancellationToken cancellationToken) =>
         Ok(await departments.ListAsync(cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<DepartmentDto>(StatusCodes.Status200OK)]
     [RequiresPermission("organization.departments", PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -33,6 +35,7 @@ public class DepartmentsController(
     }
 
     [HttpPost]
+    [ProducesResponseType<DepartmentDto>(StatusCodes.Status201Created)]
     [RequiresPermission("organization.departments", PermissionAction.Create)]
     public async Task<IActionResult> Create(
         DepartmentRequest request,
@@ -55,6 +58,7 @@ public class DepartmentsController(
     }
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<DepartmentDto>(StatusCodes.Status200OK)]
     [RequiresPermission("organization.departments", PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -78,6 +82,7 @@ public class DepartmentsController(
     }
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission("organization.departments", PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

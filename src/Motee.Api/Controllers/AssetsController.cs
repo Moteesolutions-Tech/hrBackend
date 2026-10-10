@@ -23,6 +23,7 @@ public class AssetsController(
     private const string Module = "operations.assets";
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<AssetDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] AssetFilters filters,
@@ -34,6 +35,7 @@ public class AssetsController(
             cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<AssetDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -52,6 +54,7 @@ public class AssetsController(
     }
 
     [HttpPost]
+    [ProducesResponseType<AssetDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Create(
         AssetRequest request,
@@ -74,6 +77,7 @@ public class AssetsController(
     }
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<AssetDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -98,6 +102,7 @@ public class AssetsController(
 
     // Handing kit over is an act, not a side effect of correcting a serial number.
     [HttpPost("{id:guid}/assign")]
+    [ProducesResponseType<AssetDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Assign(
         Guid id,
@@ -112,6 +117,7 @@ public class AssetsController(
     }
 
     [HttpPost("{id:guid}/return")]
+    [ProducesResponseType<AssetDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Return(
         Guid id,
@@ -128,6 +134,7 @@ public class AssetsController(
     // Who has ever held this. Behind View: it is the asset's own record, and an auditor
     // with read access to assets needs it without being able to reassign anything.
     [HttpGet("{id:guid}/history")]
+    [ProducesResponseType<IReadOnlyList<AssetAssignmentDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> History(Guid id, CancellationToken cancellationToken) =>
         Ok(await assets.HistoryAsync(id, cancellationToken));
@@ -135,6 +142,7 @@ public class AssetsController(
     // Lost and Retired. There is no delete: an asset that existed stays on the books,
     // because "where did that laptop go" is exactly what an audit asks.
     [HttpPost("{id:guid}/status")]
+    [ProducesResponseType<AssetDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> ChangeStatus(
         Guid id,

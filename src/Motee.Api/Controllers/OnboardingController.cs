@@ -17,6 +17,7 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
     private const string Module = "talent.onboarding";
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<OnboardingDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] OnboardingQuery query,
@@ -26,18 +27,20 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
     // The stages a record can be moved to. Served rather than hard-coded in the client for
     // the same reason as the approvals catalogue: the list is the backend's to decide.
     [HttpGet("catalogue")]
+    [ProducesResponseType<OnboardingCatalogue>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public IActionResult Catalogue() =>
-        Ok<object>(new
+        Ok(new OnboardingCatalogue
         {
-            stages = Enum.GetNames<OnboardingStage>(),
-            submissions = Enum.GetNames<OnboardingSubmission>(),
+            Stages = Enum.GetNames<OnboardingStage>(),
+            Submissions = Enum.GetNames<OnboardingSubmission>(),
         });
 
     // The joiner's own record. No permission attribute: this is theirs, and requiring the
     // onboarding module would mean granting every new hire the screen that lists everyone
     // else's onboarding too.
     [HttpGet("mine")]
+    [ProducesResponseType<OnboardingDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(CancellationToken cancellationToken)
     {
         OnboardingDto? record = await onboarding.MineAsync(cancellationToken);
@@ -48,6 +51,7 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
     }
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<OnboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -59,6 +63,7 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
     }
 
     [HttpPost("{id:guid}/stage")]
+    [ProducesResponseType<OnboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Move(
         Guid id,
@@ -69,6 +74,7 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
             "Onboarding stage updated.");
 
     [HttpPost("{id:guid}/complete")]
+    [ProducesResponseType<OnboardingDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Complete(Guid id, CancellationToken cancellationToken) =>
         Respond(await onboarding.CompleteAsync(id, cancellationToken), "Onboarding completed.");
@@ -106,4 +112,14 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
 public sealed record MoveStageRequest
 {
     public required OnboardingStage Stage { get; init; }
+}
+
+// A named type rather than an anonymous object, so the published document can describe
+// it. An anonymous payload reaches the frontend as "data": null — and these are the
+// dropdown values a screen is built from, which is the worst thing to leave undocumented.
+public sealed record OnboardingCatalogue
+{
+    public required IReadOnlyList<string> Stages { get; init; }
+
+    public required IReadOnlyList<string> Submissions { get; init; }
 }

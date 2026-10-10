@@ -36,6 +36,7 @@ public class EmployeesController(
     private const int MaxImportRows = 1_000;
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<EmployeeListItemDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] EmployeeFilters filters,
@@ -49,6 +50,7 @@ public class EmployeesController(
     // The stat cards and the tab counts. Same filters as the list, minus the status
     // it is counting, so a card and the rows it drills into show the same number.
     [HttpGet("stats")]
+    [ProducesResponseType<EmployeeStatsDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Stats(
         [FromQuery] EmployeeFilters filters,
@@ -61,6 +63,7 @@ public class EmployeesController(
     // request open while the whole file is built, and the caller gets nothing until
     // it finishes. The job emails a link when it is done.
     [HttpPost("export")]
+    [ProducesResponseType<ExportJobDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Export)]
     public async Task<IActionResult> Export(
         [FromServices] IExportService exports,
@@ -97,6 +100,7 @@ public class EmployeesController(
     // So the column picker is built from what the server actually writes, rather than
     // a list the frontend keeps in step by hand.
     [HttpGet("export/columns")]
+    [ProducesResponseType<IReadOnlyList<ExportColumnDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Export)]
     public IActionResult ExportColumns() =>
         Ok(EmployeeExportColumns.All
@@ -119,6 +123,7 @@ public class EmployeesController(
     };
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<EmployeeDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -142,6 +147,7 @@ public class EmployeesController(
     }
 
     [HttpPost]
+    [ProducesResponseType<EmployeeDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Create(
         EmployeeRequest request,
@@ -174,6 +180,7 @@ public class EmployeesController(
     // its own permission. Returning it beside the profile would hand it to every Line
     // Manager who can open one of their reports.
     [HttpGet("{id:guid}/medical")]
+    [ProducesResponseType<MedicalDto>(StatusCodes.Status200OK)]
     [RequiresPermission(MedicalModule, PermissionAction.View)]
     public async Task<IActionResult> Medical(Guid id, CancellationToken cancellationToken)
     {
@@ -190,6 +197,7 @@ public class EmployeesController(
     // apart from Update so a status change is a deliberate act, not something that
     // rides along with a form save.
     [HttpPost("{id:guid}/status")]
+    [ProducesResponseType<EmployeeDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> ChangeStatus(
         Guid id,
@@ -206,6 +214,7 @@ public class EmployeesController(
     // Soft delete: the row moves to the Deleted tab rather than being removed, so
     // history and anyone who reported to them survive.
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -221,6 +230,8 @@ public class EmployeesController(
     // profile. The token is returned only outside Production, so a developer can
     // follow the link without a mailbox.
     [HttpPost("invite")]
+    [ProducesResponseType<EmployeeInvitedResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Invite(
         InviteRequest request,
@@ -235,11 +246,11 @@ public class EmployeesController(
             return Failure<object>(StatusFor(result.Outcome), MessageFor(result.Outcome));
         }
 
-        return CreatedEnvelope<object>(
-            new
+        return CreatedEnvelope(
+            new EmployeeInvitedResponse
             {
-                employee = result.Employee,
-                expiresAt = result.ExpiresAt,
+                Employee = result.Employee,
+                ExpiresAt = result.ExpiresAt,
 
                 // Development only. The mailbox round-trip is what proves the person
                 // joining controls the address; returning the raw token replaces that
@@ -247,7 +258,7 @@ public class EmployeesController(
                 // stored precisely so the raw value never has to exist outside the
                 // email, and a response body is exactly where it leaks into devtools,
                 // proxy logs and frontend error reporting.
-                joinToken = debugMode.Enabled ? result.Token : null,
+                JoinToken = debugMode.Enabled ? result.Token : null,
             },
             "Invitation sent.");
     }
@@ -256,6 +267,7 @@ public class EmployeesController(
     // but no account — and the Resend Invite row action, which is the same act.
     // Issuing revokes any earlier link, so only the newest one works.
     [HttpPost("{id:guid}/invitation")]
+    [ProducesResponseType<InvitationIssuedResponse>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> IssueInvitation(
         Guid id,
@@ -266,11 +278,11 @@ public class EmployeesController(
         IssueInviteResult result = await invitations.IssueAsync(id, cancellationToken);
 
         return result.Succeeded
-            ? Ok<object>(
-                new
+            ? Ok(
+                new InvitationIssuedResponse
                 {
-                    expiresAt = result.ExpiresAt,
-                    joinToken = debugMode.Enabled ? result.Token : null,
+                    ExpiresAt = result.ExpiresAt,
+                    JoinToken = debugMode.Enabled ? result.Token : null,
                 },
                 "Invitation sent.")
             : Failure<object>(StatusFor(result.Outcome), MessageFor(result.Outcome));
@@ -278,6 +290,7 @@ public class EmployeesController(
 
     // Withdrawn before it was used — someone who left between offer and start date.
     [HttpDelete("{id:guid}/invitation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> RevokeInvitation(
         Guid id,
@@ -294,6 +307,7 @@ public class EmployeesController(
     // Who has been invited and not joined. Expired ones stay on the list: they are
     // exactly the people worth chasing.
     [HttpGet("invitations")]
+    [ProducesResponseType<IReadOnlyList<PendingInvitationDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> PendingInvitations(
         [FromServices] IEmployeeInvitationService invitations,
@@ -314,12 +328,14 @@ public class EmployeesController(
     // What each column means and whether it is required, so the upload screen can
     // show guidance without keeping its own copy of the list.
     [HttpGet("import/columns")]
+    [ProducesResponseType<IReadOnlyList<ImportColumn>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public IActionResult ImportColumns() => Ok(EmployeeImportColumns.All);
 
     // The frontend parses the CSV and posts the rows. Valid rows commit; invalid ones
     // come back with their line number so one typo does not reject the whole file.
     [HttpPost("import")]
+    [ProducesResponseType<EmployeeImportResult>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Import(
         EmployeeImportRequest request,
@@ -344,6 +360,7 @@ public class EmployeesController(
     }
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<EmployeeDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,

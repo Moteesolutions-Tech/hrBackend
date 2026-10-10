@@ -21,6 +21,7 @@ public class TenantSetupController(
     // The wizard renders its dropdowns from here. Static reference data — identical
     // for every tenant — so it is cacheable and needs no tenant context.
     [HttpGet("options")]
+    [ProducesResponseType<TenantSetupOptions>(StatusCodes.Status200OK)]
     [AllowAnonymous]
     [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any)]
     public IActionResult Options() => Ok(TenantSetupOptions.Current);
@@ -29,6 +30,7 @@ public class TenantSetupController(
     // registration, and everything else arrives as its documented default rather
     // than blank.
     [HttpGet]
+    [ProducesResponseType<TenantSetupDto>(StatusCodes.Status200OK)]
     [RequiresPermission("admin.settings", PermissionAction.View)]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
@@ -45,6 +47,7 @@ public class TenantSetupController(
     }
 
     [HttpPut]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission("admin.settings", PermissionAction.Edit)]
     public async Task<IActionResult> Save(
         TenantSetupRequest request,
@@ -70,6 +73,7 @@ public class TenantSetupController(
     }
 
     [HttpPost("complete")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission("admin.settings", PermissionAction.Edit)]
     public async Task<IActionResult> Complete(CancellationToken cancellationToken)
     {

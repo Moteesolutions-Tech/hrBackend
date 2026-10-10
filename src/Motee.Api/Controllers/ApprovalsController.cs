@@ -23,12 +23,14 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // is their own queue, and gating it behind a module would hide from a line manager
     // the very thing they have been asked to decide.
     [HttpGet("my-queue")]
+    [ProducesResponseType<PagedResult<ApprovalDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> MyQueue(
         [FromQuery] PagedQuery query,
         CancellationToken cancellationToken) =>
         Ok(await approvals.MyQueueAsync(query, cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -42,6 +44,7 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // Everything running against one record, so a module can show "waiting on the
     // department head" without knowing the engine's tables.
     [HttpGet("for/{subjectType}/{subjectId:guid}")]
+    [ProducesResponseType<IReadOnlyList<ApprovalDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> ForSubject(
         string subjectType,
@@ -54,6 +57,7 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // anyone holding it approve somebody else's step, and the chain's order would then
     // describe nothing.
     [HttpPost("{id:guid}/decide")]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Decide(
         Guid id,
         DecideApprovalRequest request,
@@ -61,6 +65,7 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
         Respond(await approvals.DecideAsync(id, request.Decision, request.Note, cancellationToken));
 
     [HttpPost("{id:guid}/resubmit")]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Resubmit(Guid id, CancellationToken cancellationToken) =>
         Respond(await approvals.ResubmitAsync(id, cancellationToken));
 
@@ -70,11 +75,13 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // Behind Edit rather than View: it is the only way to unstick a chain short of
     // cancelling it, and it changes who work is sitting with.
     [HttpPost("{id:guid}/reresolve")]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Reresolve(Guid id, CancellationToken cancellationToken) =>
         Respond(await approvals.ReresolveAsync(id, cancellationToken));
 
     [HttpPost("{id:guid}/cancel")]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Cancel(
         Guid id,

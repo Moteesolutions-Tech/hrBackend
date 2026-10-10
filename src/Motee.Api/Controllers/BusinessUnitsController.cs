@@ -22,11 +22,13 @@ public class BusinessUnitsController(
     private const string Module = "organization.structure";
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<BusinessUnitDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(CancellationToken cancellationToken) =>
         Ok(await businessUnits.ListAsync(cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<BusinessUnitDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -38,6 +40,7 @@ public class BusinessUnitsController(
     }
 
     [HttpPost]
+    [ProducesResponseType<BusinessUnitDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Create(
         BusinessUnitRequest request,
@@ -60,6 +63,7 @@ public class BusinessUnitsController(
     }
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<BusinessUnitDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -83,6 +87,7 @@ public class BusinessUnitsController(
     }
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
