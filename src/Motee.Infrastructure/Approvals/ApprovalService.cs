@@ -656,12 +656,17 @@ internal sealed class ApprovalService(
             step.ResolvedEmployeeId = resolved.EmployeeId;
             step.ResolvedUserId = resolved.UserId;
             step.ResolvedRoleId = resolved.RoleId;
+
+            // Carried onto the step so the decision keeps explaining itself after the
+            // delegation that caused it has expired or been deleted.
+            step.Delegation = resolved.Delegation;
             return;
         }
 
         step.ResolvedEmployeeId = null;
         step.ResolvedUserId = null;
         step.ResolvedRoleId = null;
+        step.Delegation = null;
         step.SkippedReason = resolved.Reason;
 
         if (!step.Required)
@@ -763,6 +768,7 @@ internal sealed class ApprovalService(
                 DecidedAt = step.DecidedAt,
                 Note = step.Note,
                 SkippedReason = step.SkippedReason,
+                Delegation = step.Delegation,
             })
             .ToListAsync(cancellationToken);
 

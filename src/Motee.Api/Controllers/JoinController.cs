@@ -5,8 +5,11 @@ using Motee.Api.Contracts;
 using Motee.Api.Contracts.Auth;
 using Motee.Application.Auth;
 using Motee.Application.Employees;
+using Motee.Application.Onboarding;
+using Motee.Application.Tenancy;
 using Motee.Domain.Employees;
 using Motee.Domain.Files;
+using Motee.Domain.Onboarding;
 
 namespace Motee.Api.Controllers;
 
@@ -16,8 +19,156 @@ namespace Motee.Api.Controllers;
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/join")]
 [AllowAnonymous]
-public class JoinController(IEmployeeInvitationService invitations) : ApiControllerBase
+public class JoinController(
+    IEmployeeInvitationService invitations,
+    IJoinerPackService pack) : ApiControllerBase
 {
+    // What this company asks a joiner for. Country-specific, so the form cannot be built
+    // without it: Nigeria asks for guarantors, the UK for a tax declaration.
+    [HttpGet("{token}/requirements")]
+    public Task<IActionResult> Requirements(string token, CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async _ =>
+            Ok(await pack.RequirementsAsync(cancellationToken)));
+
+    [HttpGet("{token}/pack")]
+    public Task<IActionResult> Pack(string token, CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+            Ok(await pack.GetAsync(recordId, cancellationToken)));
+
+    // Accepting the privacy notice, which gates everything else. No body: the version in
+    // force is the backend's to stamp, not the caller's to claim.
+    [HttpPost("{token}/consent")]
+    public Task<IActionResult> Consent(string token, CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+            Respond(await pack.AcceptPrivacyNoticeAsync(recordId, cancellationToken)));
+
+    [HttpPut("{token}/documents/{kind}")]
+    public Task<IActionResult> AttachDocument(
+        string token,
+        JoinerDocumentKind kind,
+        AttachJoinerDocumentRequest request,
+        CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+            Respond(await pack.AttachDocumentAsync(
+                recordId, kind, request.FileId, cancellationToken)));
+
+    [HttpDelete("{token}/documents/{kind}")]
+    public Task<IActionResult> RemoveDocument(
+        string token,
+        JoinerDocumentKind kind,
+        CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+        {
+            JoinerPackOutcome outcome = await pack.RemoveDocumentAsync(
+                recordId, kind, cancellationToken);
+
+            return outcome == JoinerPackOutcome.Succeeded
+                ? Ok<object?>(null, "Document removed.")
+                : Failure<object?>(PackStatusFor(outcome), PackMessageFor(outcome));
+        });
+
+    [HttpPut("{token}/guarantors")]
+    public Task<IActionResult> Guarantors(
+        string token,
+        SaveGuarantorsRequest request,
+        CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+            Respond(await pack.SaveGuarantorsAsync(
+                recordId, request.Guarantors, cancellationToken)));
+
+    [HttpPut("{token}/starter-tax")]
+    public Task<IActionResult> StarterTax(
+        string token,
+        StarterTaxRequest request,
+        CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+            Respond(await pack.SaveStarterTaxAsync(recordId, request, cancellationToken)));
+
+    // "Save & finish later". Parks progress against the same link, so returning resumes
+    // on the step they left off on.
+    [HttpPut("{token}/draft")]
+    public Task<IActionResult> SaveDraft(
+        string token,
+        SaveJoinerDraftRequest request,
+        CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+        {
+            JoinerPackOutcome outcome = await pack.SaveDraftAsync(
+                recordId, request.DraftJson, request.Step, cancellationToken);
+
+            return outcome == JoinerPackOutcome.Succeeded
+                ? Ok<object?>(null, "Progress saved.")
+                : Failure<object?>(PackStatusFor(outcome), PackMessageFor(outcome));
+        });
+
+    [HttpPost("{token}/declare")]
+    public Task<IActionResult> Declare(
+        string token,
+        DeclareJoinerPackRequest request,
+        CancellationToken cancellationToken) =>
+        WithScope(token, cancellationToken, async recordId =>
+            Respond(await pack.DeclareAsync(recordId, request.SignedName, cancellationToken)));
+
+    // Resolves the token to a record and runs the action as that tenant.
+    //
+    // The token is the only credential a joiner has, so it is the only thing that decides
+    // what is reachable. An endpoint taking a record id would let anybody holding any
+    // link fill in anybody else's pack.
+    private async Task<IActionResult> WithScope(
+        string token,
+        CancellationToken cancellationToken,
+        Func<Guid, Task<IActionResult>> action)
+    {
+        JoinerScope? scope = await invitations.ScopeAsync(token, cancellationToken);
+
+        // An unknown token and a withdrawn one are the same answer, so probing tells
+        // nobody anything.
+        if (scope is null || !scope.Usable)
+        {
+            return Failure<object?>(
+                MoteeStatusCodes.NotFound, "That link is no longer valid.");
+        }
+
+        // The joiner has no tenant claim, so the token establishes one for the duration
+        // of the call. The query filter reads this the same way it reads a real claim.
+        using IDisposable tenant = AmbientTenant.Use(scope.TenantId);
+
+        return await action(scope.OnboardingRecordId!.Value);
+    }
+
+    private IActionResult Respond(JoinerPackResult result) =>
+        result.Succeeded
+            ? Ok(result.Pack!, "Saved.")
+            : Failure<JoinerPackDto>(
+                PackStatusFor(result.Outcome),
+                result.Outstanding.Count > 0
+                    ? $"Still needed: {string.Join(", ", result.Outstanding)}."
+                    : PackMessageFor(result.Outcome));
+
+    private static string PackStatusFor(JoinerPackOutcome outcome) => outcome switch
+    {
+        JoinerPackOutcome.NotFound => MoteeStatusCodes.NotFound,
+
+        // Not an invalid request: the form is fine, the prerequisite is not met.
+        JoinerPackOutcome.ConsentMissing or JoinerPackOutcome.Incomplete =>
+            MoteeStatusCodes.Conflict,
+        _ => MoteeStatusCodes.InvalidRequest,
+    };
+
+    private static string PackMessageFor(JoinerPackOutcome outcome) => outcome switch
+    {
+        JoinerPackOutcome.NotFound => "Not found.",
+        JoinerPackOutcome.ConsentMissing =>
+            "Please accept the privacy notice before entering your details.",
+        JoinerPackOutcome.NotApplicable => "That is not asked for in this country.",
+        JoinerPackOutcome.UnknownFile => "That file could not be found.",
+        JoinerPackOutcome.Incomplete => "Some required details are still missing.",
+        JoinerPackOutcome.ContradictorySource =>
+            "Choose either a P45 or the Starter Checklist, and fill in the one you chose.",
+        JoinerPackOutcome.InvalidGuarantors => "Two guarantors are required.",
+        _ => "Could not save.",
+    };
+
     [HttpGet("{token}")]
     public async Task<IActionResult> Preview(string token, CancellationToken cancellationToken)
     {
@@ -163,4 +314,29 @@ public class JoinController(IEmployeeInvitationService invitations) : ApiControl
             "Password must be at least 8 characters.",
         _ => "Could not complete your onboarding.",
     };
+}
+
+// The file is uploaded through the files module first, then referenced here — the same
+// two-step the avatar and approval attachments use, so the size and type checks live in
+// one place.
+public sealed record AttachJoinerDocumentRequest
+{
+    public required Guid FileId { get; init; }
+}
+
+public sealed record SaveGuarantorsRequest
+{
+    public required IReadOnlyList<GuarantorRequest> Guarantors { get; init; }
+}
+
+public sealed record SaveJoinerDraftRequest
+{
+    public required string DraftJson { get; init; }
+
+    public int? Step { get; init; }
+}
+
+public sealed record DeclareJoinerPackRequest
+{
+    public required string SignedName { get; init; }
 }

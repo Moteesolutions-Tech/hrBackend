@@ -30,6 +30,14 @@ public interface IEmployeeInvitationService
     // token alone.
     Task<InvitationPreview?> PreviewAsync(string token, CancellationToken cancellationToken = default);
 
+    // Which record a join token may act on.
+    //
+    // Exists so the pre-boarding endpoints can take a token rather than a record id. A
+    // joiner has no account and no tenant claim, so an endpoint accepting an id would let
+    // anybody with any link fill in anybody else's pack — the token has to be the only
+    // thing that decides what is reachable.
+    Task<JoinerScope?> ScopeAsync(string token, CancellationToken cancellationToken = default);
+
     // The joiner's profile photo, uploaded during self-onboarding — before they have
     // an account, so the token is the only credential. It resolves the tenant, which
     // is what lets the file be stored against the right company at all.
@@ -173,6 +181,24 @@ public sealed record InvitationPreview
 public sealed record AcceptInviteRequest : SelfProfileRequest
 {
     public required string Password { get; init; }
+}
+
+// What a join token is allowed to touch. Resolved from the token alone, across tenants,
+// because that is the only credential the joiner has.
+public sealed record JoinerScope
+{
+    public required InvitationOutcome Outcome { get; init; }
+
+    public required Guid TenantId { get; init; }
+
+    public required Guid EmployeeId { get; init; }
+
+    // Null only if the employee somehow has no onboarding record, which EnsureAsync makes
+    // unlikely — surfaced rather than created here, because creating one as a side effect
+    // of an anonymous call is how a bad token ends up writing rows.
+    public Guid? OnboardingRecordId { get; init; }
+
+    public bool Usable => Outcome == InvitationOutcome.Valid && OnboardingRecordId is not null;
 }
 
 public sealed record JoinPhotoUpload

@@ -44,6 +44,10 @@ public sealed record ResolvedApprover
     // exclusive: a step lands either on one person or on a queue, never on both.
     public Guid? RoleId { get; init; }
 
+    // Set when a delegation redirected this away from whoever it first resolved to. The
+    // person above is the delegate; this says who it would have been.
+    public StepDelegation? Delegation { get; init; }
+
     public required bool Found { get; init; }
 
     // Why not, in words a person can act on: "no manager is recorded for this employee".

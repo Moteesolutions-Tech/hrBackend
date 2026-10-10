@@ -77,6 +77,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<ApprovalAttachment> ApprovalAttachments => Set<ApprovalAttachment>();
 
+    public DbSet<ApprovalDelegation> ApprovalDelegations => Set<ApprovalDelegation>();
+
     public DbSet<LeaveType> LeaveTypes => Set<LeaveType>();
 
     public DbSet<LeavePolicy> LeavePolicies => Set<LeavePolicy>();
@@ -92,6 +94,12 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<LeaveBlackout> LeaveBlackouts => Set<LeaveBlackout>();
 
     public DbSet<OnboardingRecord> OnboardingRecords => Set<OnboardingRecord>();
+
+    public DbSet<JoinerDocument> JoinerDocuments => Set<JoinerDocument>();
+
+    public DbSet<Guarantor> Guarantors => Set<Guarantor>();
+
+    public DbSet<StarterTaxRecord> StarterTaxRecords => Set<StarterTaxRecord>();
 
     public DbSet<OffboardingRecord> OffboardingRecords => Set<OffboardingRecord>();
 
