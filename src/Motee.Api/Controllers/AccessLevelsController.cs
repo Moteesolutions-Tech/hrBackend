@@ -19,6 +19,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     private const string Module = "admin.access-levels";
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<AccessLevelDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(CancellationToken cancellationToken) =>
         Ok(await accessLevels.ListAsync(cancellationToken));
@@ -27,6 +28,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     // and which actions imply which. Served rather than duplicated on the client,
     // because a matrix built from a stale list quietly stops offering new modules.
     [HttpGet("catalogue")]
+    [ProducesResponseType<AccessLevelCatalogue>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public IActionResult Catalogue() =>
         Ok(new AccessLevelCatalogue
@@ -43,6 +45,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
         });
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<AccessLevelDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -56,6 +59,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     // Created as a draft. Activating it is a second, deliberate act — see the status
     // endpoint below.
     [HttpPost]
+    [ProducesResponseType<AccessLevelDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Create(
         AccessLevelRequest request,
@@ -69,6 +73,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     }
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<AccessLevelDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -85,6 +90,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     // Activate, or withdraw. Deactivating takes effect at once for everyone holding
     // it, which is what makes it usable when access has to stop now.
     [HttpPost("{id:guid}/status")]
+    [ProducesResponseType<AccessLevelDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> ChangeStatus(
         Guid id,
@@ -100,6 +106,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     }
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -113,6 +120,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     // Someone can hold several. What they permit is unioned; how far they reach is
     // the narrowest of them.
     [HttpPost("{id:guid}/holders")]
+    [ProducesResponseType<AccessLevelDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Assign(
         Guid id,
@@ -128,6 +136,7 @@ public class AccessLevelsController(IAccessLevelService accessLevels) : ApiContr
     }
 
     [HttpDelete("{id:guid}/holders/{userId:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Withdraw(
         Guid id,

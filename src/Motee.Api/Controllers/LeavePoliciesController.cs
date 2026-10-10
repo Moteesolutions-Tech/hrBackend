@@ -19,11 +19,13 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
     // has to pick a type — so this sits behind View rather than the Edit that changing
     // one needs.
     [HttpGet("types")]
+    [ProducesResponseType<IReadOnlyList<LeaveTypeDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> ListTypes(CancellationToken cancellationToken) =>
         Ok(await policies.ListTypesAsync(cancellationToken));
 
     [HttpPost("types")]
+    [ProducesResponseType<LeaveTypeDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> CreateType(
         LeaveTypeRequest request,
@@ -31,6 +33,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
         Respond(await policies.CreateTypeAsync(request, cancellationToken), created: true);
 
     [HttpPut("types/{id:guid}")]
+    [ProducesResponseType<LeaveTypeDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> UpdateType(
         Guid id,
@@ -41,6 +44,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
     // Deactivation rather than deletion, which is why it is a DELETE that does not
     // delete: requests point at the type and history has to keep reading correctly.
     [HttpDelete("types/{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> DeactivateType(Guid id, CancellationToken cancellationToken)
     {
@@ -52,6 +56,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
     }
 
     [HttpGet("holidays")]
+    [ProducesResponseType<IReadOnlyList<PublicHolidayDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> ListHolidays(
         [FromQuery] int? year,
@@ -59,6 +64,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
         Ok(await policies.ListHolidaysAsync(year, cancellationToken));
 
     [HttpPost("holidays")]
+    [ProducesResponseType<PublicHolidayDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> AddHoliday(
         PublicHolidayRequest request,
@@ -78,6 +84,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
     // The computed days only: Eid and the other moon-sighting holidays are announced
     // rather than calculable, so they stay a company's own entry.
     [HttpPost("holidays/generate/{year:int}")]
+    [ProducesResponseType<IReadOnlyList<PublicHolidayDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> GenerateHolidays(
         int year,
@@ -95,6 +102,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
     }
 
     [HttpDelete("holidays/{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> RemoveHoliday(Guid id, CancellationToken cancellationToken)
     {
@@ -108,11 +116,13 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
     // Periods the company will not approve planned leave over. The opposite of a public
     // holiday: that is a day nobody works, this is a day everybody does.
     [HttpGet("blackouts")]
+    [ProducesResponseType<IReadOnlyList<LeaveBlackoutDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Blackouts(CancellationToken cancellationToken) =>
         Ok(await policies.ListBlackoutsAsync(cancellationToken));
 
     [HttpPost("blackouts")]
+    [ProducesResponseType<LeaveBlackoutDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> AddBlackout(
         LeaveBlackoutRequest request,
@@ -121,6 +131,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
             await policies.SaveBlackoutAsync(null, request, cancellationToken), created: true);
 
     [HttpPut("blackouts/{id:guid}")]
+    [ProducesResponseType<LeaveBlackoutDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> UpdateBlackout(
         Guid id,
@@ -129,6 +140,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
         RespondBlackout(await policies.SaveBlackoutAsync(id, request, cancellationToken));
 
     [HttpDelete("blackouts/{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> RemoveBlackout(Guid id, CancellationToken cancellationToken)
     {

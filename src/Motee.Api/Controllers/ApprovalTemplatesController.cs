@@ -19,6 +19,7 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
     private const string Module = "submissions.workflows";
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<ApprovalTemplateDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] string? documentType,
@@ -29,6 +30,7 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
     // rather than hard-coded in the client: the resolver list grows a phase at a time,
     // and an option offered before its resolver exists is one the backend cannot honour.
     [HttpGet("catalogue")]
+    [ProducesResponseType<IReadOnlyList<ApprovalRoleDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Catalogue(CancellationToken cancellationToken) =>
         Ok<object>(new
@@ -43,6 +45,7 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
         });
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<ApprovalTemplateDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -54,6 +57,7 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
     }
 
     [HttpPost]
+    [ProducesResponseType<ApprovalTemplateDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Create(
         ApprovalTemplateRequest request,
@@ -61,6 +65,7 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
         Respond(await templates.CreateAsync(request, cancellationToken), created: true);
 
     [HttpPut("{id:guid}")]
+    [ProducesResponseType<ApprovalTemplateDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Update(
         Guid id,
@@ -69,6 +74,7 @@ public class ApprovalTemplatesController(IApprovalTemplateService templates) : A
         Respond(await templates.UpdateAsync(id, request, cancellationToken));
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

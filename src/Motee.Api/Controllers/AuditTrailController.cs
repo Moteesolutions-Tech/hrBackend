@@ -2,6 +2,7 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Motee.Api.Authorization;
 using Motee.Api.Contracts;
+using Motee.Application.Common;
 using Motee.Application.Audit;
 using Motee.Domain.Authorization;
 
@@ -18,6 +19,7 @@ public class AuditTrailController(IAuditTrail audit) : ApiControllerBase
     // should not be: a trail somebody can rewrite answers no question worth asking.
     // Removal happens by retention policy, applied to the whole table.
     [HttpGet]
+    [ProducesResponseType<PagedResult<AuditEntryDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] AuditQuery query,
@@ -29,6 +31,7 @@ public class AuditTrailController(IAuditTrail audit) : ApiControllerBase
     // one maintained in the frontend goes stale without anyone noticing — the symptom
     // being a filter that cannot find entries plainly visible in the table.
     [HttpGet("catalogue")]
+    [ProducesResponseType<AuditCatalogueDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Catalogue(CancellationToken cancellationToken) =>
         Ok(await audit.CatalogueAsync(cancellationToken));

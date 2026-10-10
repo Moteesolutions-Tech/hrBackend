@@ -13,6 +13,7 @@ namespace Motee.Api.Controllers;
 public class ExportsController(IExportService exports) : ApiControllerBase
 {
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<ExportJobDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
         ExportJobDto? job = await exports.GetAsync(id, cancellationToken);
@@ -27,6 +28,7 @@ public class ExportsController(IExportService exports) : ApiControllerBase
     // outlives neither its own expiry nor a forwarded inbox, so an expired one should
     // not be a dead end.
     [HttpPost("{id:guid}/link")]
+    [ProducesResponseType<ExportLink>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Link(Guid id, CancellationToken cancellationToken)
     {
         ExportLink? link = await exports.CreateLinkAsync(id, cancellationToken);

@@ -47,7 +47,6 @@ public class JoinController(
 
     [HttpPut("{token}/documents/{kind}")]
     [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
-    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> AttachDocument(
         string token,
         JoinerDocumentKind kind,
@@ -75,7 +74,6 @@ public class JoinController(
 
     [HttpPut("{token}/guarantors")]
     [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
-    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> Guarantors(
         string token,
         SaveGuarantorsRequest request,
@@ -86,7 +84,6 @@ public class JoinController(
 
     [HttpPut("{token}/starter-tax")]
     [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
-    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> StarterTax(
         string token,
         StarterTaxRequest request,
@@ -114,7 +111,6 @@ public class JoinController(
 
     [HttpPost("{token}/declare")]
     [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
-    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> Declare(
         string token,
         DeclareJoinerPackRequest request,
@@ -210,7 +206,7 @@ public class JoinController(
     // halfway through. The token is the only credential, and it is what tells us which
     // company the file belongs to.
     [HttpPost("{token}/photo")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<JoinPhotoResponse>(StatusCodes.Status200OK)]
     [RequestSizeLimit(MaxPhotoBytes)]
     public async Task<IActionResult> Photo(
         string token,
@@ -232,7 +228,7 @@ public class JoinController(
 
         if (result.Succeeded)
         {
-            return Ok<object>(new { fileId = result.FileId }, "Photo uploaded.");
+            return Ok(new JoinPhotoResponse { FileId = result.FileId }, "Photo uploaded.");
         }
 
 
@@ -355,4 +351,10 @@ public sealed record SaveJoinerDraftRequest
 public sealed record DeclareJoinerPackRequest
 {
     public required string SignedName { get; init; }
+}
+
+public sealed record JoinPhotoResponse
+{
+    // The stored file's id, to reference when the pack is submitted.
+    public Guid? FileId { get; init; }
 }

@@ -18,6 +18,7 @@ public class LeaveController(
     private const string Module = "time-payroll.leave";
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<LeaveRequestDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] LeaveRequestQuery query,
@@ -28,6 +29,7 @@ public class LeaveController(
     // requiring the leave module would mean granting every member of staff the screen
     // that lists everybody else's absence.
     [HttpGet("mine")]
+    [ProducesResponseType<PagedResult<LeaveRequestDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(
         [FromQuery] LeaveRequestQuery query,
         CancellationToken cancellationToken)
@@ -42,6 +44,7 @@ public class LeaveController(
     }
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<LeaveRequestDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -56,6 +59,7 @@ public class LeaveController(
     // Create so the form can price dates as they are picked without the caller needing
     // permission to book.
     [HttpPost("quote")]
+    [ProducesResponseType<LeaveQuoteDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Quote(
         LeaveQuoteRequest request,
@@ -63,6 +67,7 @@ public class LeaveController(
         Ok<object>(await requests.QuoteAsync(request, cancellationToken));
 
     [HttpPost]
+    [ProducesResponseType<LeaveRequestDto>(StatusCodes.Status201Created)]
     [RequiresPermission(Module, PermissionAction.Create)]
     public async Task<IActionResult> Submit(
         LeaveRequestSubmission request,
@@ -72,6 +77,7 @@ public class LeaveController(
     // Behind Edit rather than Delete: withdrawing leave is not deleting the record of it,
     // and the request stays visible as cancelled.
     [HttpPost("{id:guid}/cancel")]
+    [ProducesResponseType<LeaveRequestDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Cancel(
         Guid id,

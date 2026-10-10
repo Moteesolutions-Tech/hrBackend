@@ -26,6 +26,7 @@ public class LocaleController(
     // comes from the tenant record, so an admin travelling abroad still sees their
     // own jurisdiction.
     [HttpGet]
+    [ProducesResponseType<TenantLocaleDto>(StatusCodes.Status200OK)]
     [Authorize]
     public async Task<ActionResult<TenantLocaleDto>> GetCurrent(CancellationToken cancellationToken)
     {

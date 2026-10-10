@@ -19,6 +19,7 @@ public class LeaveBalancesController(
     private const string Module = "time-payroll.leave";
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<LeaveBalanceDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(
         [FromQuery] LeaveBalanceQuery query,
@@ -29,6 +30,7 @@ public class LeaveBalancesController(
     // requests: needing the leave module to see your own remaining days would mean
     // granting everybody the screen showing the whole company's.
     [HttpGet("mine")]
+    [ProducesResponseType<IReadOnlyList<LeaveBalanceDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(
         [FromQuery] DateOnly? asAt,
         CancellationToken cancellationToken)
@@ -42,6 +44,7 @@ public class LeaveBalancesController(
     }
 
     [HttpGet("{employeeId:guid}")]
+    [ProducesResponseType<IReadOnlyList<LeaveBalanceDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> ForEmployee(
         Guid employeeId,
@@ -52,6 +55,7 @@ public class LeaveBalancesController(
     // Granting or docking days by hand. Recorded as its own row with a reason, so "why do
     // I have 23 days when the policy says 25" stays answerable.
     [HttpPost("adjust")]
+    [ProducesResponseType<LeaveBalanceDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> Adjust(
         LeaveAdjustmentRequest request,
@@ -68,6 +72,7 @@ public class LeaveBalancesController(
     // year closes — "you are about to lose 340 days across the company" is what prompts
     // the reminder to book leave.
     [HttpGet("year-end/preview")]
+    [ProducesResponseType<LeaveYearEndResult>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> PreviewYearEnd(
         [FromQuery] DateOnly? yearContaining,
@@ -81,6 +86,7 @@ public class LeaveBalancesController(
     // Safe to call twice: carry-over is unique per person, type and year, and anything
     // already written is left alone rather than recomputed.
     [HttpPost("year-end/close")]
+    [ProducesResponseType<LeaveYearEndResult>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Edit)]
     public async Task<IActionResult> CloseYearEnd(
         [FromQuery] DateOnly? yearContaining,

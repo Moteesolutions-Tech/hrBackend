@@ -14,6 +14,7 @@ namespace Motee.Api.Controllers;
 public class FilesController(IFileUploadService files) : ApiControllerBase
 {
     [HttpPost]
+    [ProducesResponseType<StoredFileDto>(StatusCodes.Status201Created)]
     [RequestSizeLimit(MaxRequestBytes)]
     public async Task<IActionResult> Upload(
         [FromForm] IFormFile file,
@@ -49,6 +50,7 @@ public class FilesController(IFileUploadService files) : ApiControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<StoredFileDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> List(
         [FromQuery] FilePurpose purpose,
         [FromQuery] Guid? ownerId,
@@ -56,6 +58,7 @@ public class FilesController(IFileUploadService files) : ApiControllerBase
         Ok(await files.ListAsync(purpose, ownerId, cancellationToken));
 
     [HttpGet("{id:guid}")]
+    [ProducesResponseType<StoredFileDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
         StoredFileDto? file = await files.GetAsync(id, cancellationToken);
@@ -66,6 +69,7 @@ public class FilesController(IFileUploadService files) : ApiControllerBase
     }
 
     [HttpGet("{id:guid}/download")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> Download(Guid id, CancellationToken cancellationToken)
     {
         FileContent? content = await files.OpenAsync(id, cancellationToken);
@@ -81,6 +85,7 @@ public class FilesController(IFileUploadService files) : ApiControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken) =>
         await files.DeleteAsync(id, cancellationToken)
             ? Ok<object?>(null, "File deleted.")

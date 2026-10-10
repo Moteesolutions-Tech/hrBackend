@@ -18,6 +18,7 @@ public class UsersController(ITenantUserService users) : ApiControllerBase
     private const string Module = "admin.access-levels";
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<TenantUserDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> List(CancellationToken cancellationToken) =>
         Ok(await users.ListAsync(cancellationToken));
