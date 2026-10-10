@@ -108,6 +108,7 @@ public static class DependencyInjection
         services.AddSingleton<AppLinks>();
 
         AddFileStorage(services, configuration);
+        AddAlerting(services, configuration);
 
         // Hangfire is hosted by the API; anything else runs the export inline.
         services.TryAddScoped<IExportQueue, InlineExportQueue>();
@@ -163,6 +164,32 @@ public static class DependencyInjection
     // resolves credentials there and then, and storage is now a dependency of the
     // employee and invitation services — so a missing key took down every employee and
     // join request, not merely the uploads.
+    // Slack when a webhook is configured, nothing otherwise.
+    //
+    // Decided here rather than inside the sink so the no-op is a real registration: a
+    // caller asking "is alerting on" each time is a caller that can forget to.
+    private static void AddAlerting(IServiceCollection services, IConfiguration configuration)
+    {
+        string? webhook = configuration["Alerts:Slack:WebhookUrl"];
+
+        if (string.IsNullOrWhiteSpace(webhook))
+        {
+            services.AddSingleton<Application.Alerts.IAlertSink, Alerts.NoopAlertSink>();
+            return;
+        }
+
+        // Named and pooled, with a short timeout. An alert is best-effort: a Slack outage
+        // must not hold a request thread open, and the caller is usually an exception
+        // handler that is already late.
+        services.AddHttpClient(Alerts.SlackAlertSink.HttpClientName, client =>
+            client.Timeout = TimeSpan.FromSeconds(5));
+
+        // Singleton so the throttle's memory survives between requests — a per-request
+        // throttle would never suppress anything.
+        services.AddSingleton<Alerts.AlertThrottle>();
+        services.AddSingleton<Application.Alerts.IAlertSink, Alerts.SlackAlertSink>();
+    }
+
     private static void AddFileStorage(IServiceCollection services, IConfiguration configuration)
     {
         if (string.IsNullOrWhiteSpace(configuration["Storage:Bucket"]))

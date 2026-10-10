@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Motee.Application.Alerts;
 using Motee.Application.Leave;
 using Motee.Application.Tenancy;
 using Motee.Infrastructure.Persistence;
@@ -17,6 +18,7 @@ namespace Motee.Api.Jobs;
 // the job rather than doubling it.
 internal sealed class LeaveYearEndJob(
     MoteeDbContext dbContext,
+    IAlertSink alerts,
     IServiceScopeFactory scopes,
     TimeProvider timeProvider,
     ILogger<LeaveYearEndJob> logger)
@@ -50,6 +52,30 @@ internal sealed class LeaveYearEndJob(
                     exception,
                     "Leave year end failed for tenant {TenantId}; continuing with the rest.",
                     tenantId);
+
+                // Alerted as Critical, and this is the case that most needs it. Carrying
+                // on is right for the other tenants, but it means nobody finds out: a
+                // failed request at least reaches the person who made it, and a leave
+                // year that quietly did not close reaches nobody until somebody notices
+                // their carry-over is missing — months later, mid-dispute.
+                await alerts.RaiseAsync(
+                    new Alert
+                    {
+                        Severity = AlertSeverity.Critical,
+                        Title = $"Leave year end failed for one tenant ({exception.GetType().Name})",
+                        Detail = $"{exception.GetType().Name}: {exception.Message}",
+
+                        // Per tenant, so one broken company does not mask another's
+                        // failure behind the throttle.
+                        Fingerprint = $"job|leave-year-end|{tenantId}|{exception.GetType().FullName}",
+                        Facts = new Dictionary<string, string?>
+                        {
+                            ["Job"] = LeaveYearEndJob.RecurringId,
+                            ["Tenant"] = tenantId.ToString(),
+                            ["Date"] = today.ToString("yyyy-MM-dd"),
+                        },
+                    },
+                    cancellationToken);
             }
         }
     }

@@ -61,19 +61,6 @@ internal static class SchemaSample
             return schema.Enum[0]?.DeepClone();
         }
 
-        // A nullable reference arrives wrapped — allOf with a single $ref inside — so the
-        // shape lives one level down and the wrapper itself has no properties. Without
-        // this, every optional nested object in the document samples as null, which is
-        // the one value that tells a reader nothing about it.
-        //
-        // allOf is a conjunction and strictly ought to be merged; in practice the
-        // generator emits exactly one branch, and the first branch of a oneOf or anyOf is
-        // a valid instance of it. Taking the first is right in both cases here.
-        if (Composed(schema) is IOpenApiSchema composed)
-        {
-            return Build(composed, document, depth, seen);
-        }
-
         JsonSchemaType? type = schema.Type;
 
         if (type is null)
@@ -120,33 +107,6 @@ internal static class SchemaSample
         }
 
         return null;
-    }
-
-    // The branch worth sampling from whichever composition keyword is present.
-    //
-    // Not simply the first. A nullable object property is generated as
-    // oneOf: [null, TheType], with the null branch first — so taking position zero
-    // samples every optional block as null, which is the one value that tells a reader
-    // nothing about it. NullableRefSchemaTransformer collapses that wrapper later, but
-    // this runs before it does, and preferring the branch with a shape is correct either
-    // way rather than dependent on which transformer went first.
-    private static IOpenApiSchema? Composed(IOpenApiSchema schema)
-    {
-        IList<IOpenApiSchema>? branches =
-            schema.AllOf is { Count: > 0 } allOf ? allOf
-            : schema.OneOf is { Count: > 0 } oneOf ? oneOf
-            : schema.AnyOf is { Count: > 0 } anyOf ? anyOf
-            : null;
-
-        if (branches is null)
-        {
-            return null;
-        }
-
-        // A reference carries the shape, so prefer one. Otherwise the first branch that
-        // is not simply "null".
-        return branches.FirstOrDefault(branch => branch is OpenApiSchemaReference)
-            ?? branches.FirstOrDefault(branch => branch.Type != JsonSchemaType.Null);
     }
 
     private static JsonObject Properties(
