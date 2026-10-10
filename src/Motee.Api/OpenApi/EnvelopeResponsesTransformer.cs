@@ -29,7 +29,7 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
     {
         operation.Responses ??= [];
 
-        WrapSuccesses(operation);
+        WrapDeclared(operation);
         AddFailures(operation, context);
 
         return Task.CompletedTask;
@@ -38,11 +38,16 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
     // The declared payload becomes the envelope's "data". Whatever the generator worked
     // out from ProducesResponseType is kept and nested rather than replaced, so adding
     // that attribute to an action is all anybody has to do.
-    private static void WrapSuccesses(OpenApiOperation operation)
+    //
+    // Every declared status, not only the successful ones. An action that documents a 409
+    // carrying its payload — "here is the pack, and here is what is still missing" — sends
+    // that enveloped like everything else, and documenting the bare payload there would be
+    // a shape the API never produces.
+    private static void WrapDeclared(OpenApiOperation operation)
     {
         foreach ((string status, IOpenApiResponse response) in operation.Responses!.ToList())
         {
-            if (!status.StartsWith('2') || response is not OpenApiResponse concrete)
+            if (response is not OpenApiResponse concrete)
             {
                 continue;
             }
@@ -51,6 +56,7 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
                 ? media.Schema
                 : null;
 
+            bool succeeded = status.StartsWith('2');
             bool created = status == "201";
 
             concrete.Content = new Dictionary<string, OpenApiMediaType>
@@ -59,16 +65,22 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
                 {
                     Schema = Envelope(payload),
                     Example = Example(
-                        created ? MoteeStatusCodes.Created : MoteeStatusCodes.Success,
-                        success: true,
-                        message: created ? "Created." : "Request successful.",
+                        succeeded
+                            ? created ? MoteeStatusCodes.Created : MoteeStatusCodes.Success
+                            : status,
+                        succeeded,
+                        succeeded
+                            ? created ? "Created." : "Request successful."
+                            : "The message names what went wrong.",
                         data: payload is null ? null : new JsonObject()),
                 },
             };
 
             if (string.IsNullOrWhiteSpace(concrete.Description))
             {
-                concrete.Description = created ? "Created." : "Success.";
+                concrete.Description = succeeded
+                    ? created ? "Created." : "Success."
+                    : "Refused. The payload carries the detail.";
             }
         }
     }

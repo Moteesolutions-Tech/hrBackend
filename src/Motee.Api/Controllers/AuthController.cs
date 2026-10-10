@@ -42,6 +42,7 @@ public class AuthController(
     IValidator<RegisterTenantRequest> registerValidator) : ApiControllerBase
 {
     [HttpPost("register")]
+    [ProducesResponseType<RegisterResponse>(StatusCodes.Status201Created)]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitSetup.ExpensiveAuthPolicy)]
     public async Task<IActionResult> Register(
@@ -88,6 +89,7 @@ public class AuthController(
     }
 
     [HttpPost("verify-otp")]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
     [AllowAnonymous]
     public async Task<IActionResult> VerifyOtp(
         VerifyOtpApiRequest request,
@@ -150,6 +152,7 @@ public class AuthController(
     }
 
     [HttpPost("resend-otp")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [AllowAnonymous]
     public async Task<IActionResult> ResendOtp(
         ResendOtpApiRequest request,
@@ -181,6 +184,7 @@ public class AuthController(
     }
 
     [HttpPost("login")]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
     [AllowAnonymous]
     public async Task<IActionResult> Login(
         LoginApiRequest request,
@@ -224,6 +228,7 @@ public class AuthController(
     }
 
     [HttpPost("forgot-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitSetup.ExpensiveAuthPolicy)]
     public async Task<IActionResult> ForgotPassword(
@@ -237,6 +242,7 @@ public class AuthController(
     }
 
     [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [AllowAnonymous]
     public async Task<IActionResult> ResetPassword(
         ResetPasswordApiRequest request,
@@ -270,6 +276,7 @@ public class AuthController(
     }
 
     [HttpPost("refresh")]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
     [AllowAnonymous]
     public async Task<IActionResult> Refresh(
         RefreshApiRequest request,
@@ -299,6 +306,7 @@ public class AuthController(
     }
 
     [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [Authorize]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
@@ -311,6 +319,7 @@ public class AuthController(
     }
 
     [HttpGet("me")]
+    [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
     [Authorize]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {

@@ -26,11 +26,13 @@ public class JoinController(
     // What this company asks a joiner for. Country-specific, so the form cannot be built
     // without it: Nigeria asks for guarantors, the UK for a tax declaration.
     [HttpGet("{token}/requirements")]
+    [ProducesResponseType<JoinerPackRequirementsDto>(StatusCodes.Status200OK)]
     public Task<IActionResult> Requirements(string token, CancellationToken cancellationToken) =>
         WithScope(token, cancellationToken, async _ =>
             Ok(await pack.RequirementsAsync(cancellationToken)));
 
     [HttpGet("{token}/pack")]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
     public Task<IActionResult> Pack(string token, CancellationToken cancellationToken) =>
         WithScope(token, cancellationToken, async recordId =>
             Ok(await pack.GetAsync(recordId, cancellationToken)));
@@ -38,11 +40,14 @@ public class JoinController(
     // Accepting the privacy notice, which gates everything else. No body: the version in
     // force is the backend's to stamp, not the caller's to claim.
     [HttpPost("{token}/consent")]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
     public Task<IActionResult> Consent(string token, CancellationToken cancellationToken) =>
         WithScope(token, cancellationToken, async recordId =>
             Respond(await pack.AcceptPrivacyNoticeAsync(recordId, cancellationToken)));
 
     [HttpPut("{token}/documents/{kind}")]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> AttachDocument(
         string token,
         JoinerDocumentKind kind,
@@ -53,6 +58,7 @@ public class JoinController(
                 recordId, kind, request.FileId, cancellationToken)));
 
     [HttpDelete("{token}/documents/{kind}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<IActionResult> RemoveDocument(
         string token,
         JoinerDocumentKind kind,
@@ -68,6 +74,8 @@ public class JoinController(
         });
 
     [HttpPut("{token}/guarantors")]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> Guarantors(
         string token,
         SaveGuarantorsRequest request,
@@ -77,6 +85,8 @@ public class JoinController(
                 recordId, request.Guarantors, cancellationToken)));
 
     [HttpPut("{token}/starter-tax")]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> StarterTax(
         string token,
         StarterTaxRequest request,
@@ -87,6 +97,7 @@ public class JoinController(
     // "Save & finish later". Parks progress against the same link, so returning resumes
     // on the step they left off on.
     [HttpPut("{token}/draft")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public Task<IActionResult> SaveDraft(
         string token,
         SaveJoinerDraftRequest request,
@@ -102,6 +113,8 @@ public class JoinController(
         });
 
     [HttpPost("{token}/declare")]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<JoinerPackDto>(StatusCodes.Status409Conflict)]
     public Task<IActionResult> Declare(
         string token,
         DeclareJoinerPackRequest request,
@@ -170,6 +183,7 @@ public class JoinController(
     };
 
     [HttpGet("{token}")]
+    [ProducesResponseType<InvitationPreview>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Preview(string token, CancellationToken cancellationToken)
     {
         InvitationPreview? preview = await invitations.PreviewAsync(token, cancellationToken);
@@ -196,6 +210,7 @@ public class JoinController(
     // halfway through. The token is the only credential, and it is what tells us which
     // company the file belongs to.
     [HttpPost("{token}/photo")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [RequestSizeLimit(MaxPhotoBytes)]
     public async Task<IActionResult> Photo(
         string token,
@@ -227,6 +242,7 @@ public class JoinController(
     }
 
     [HttpPost("{token}")]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Accept(
         string token,
         AcceptInviteRequest request,
