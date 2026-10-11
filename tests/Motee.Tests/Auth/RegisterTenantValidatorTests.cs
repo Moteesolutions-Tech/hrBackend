@@ -136,4 +136,28 @@ public class RegisterTenantValidatorTests
 
         Assert.True(result.Errors.Count >= 6, $"expected every field reported, got {result.Errors.Count}");
     }
+
+    // The validator's limit has to match the column's, not the standard's.
+    //
+    // It allowed 320 — the theoretical maximum for an address — against a varchar(256)
+    // column, so anything in between passed here and failed at the insert. That reached
+    // the user as a raw Postgres error about a column width, and because the service
+    // absorbed it as a validation failure rather than a fault, nothing alerted either.
+    [Fact]
+    public void RejectsAnEmailLongerThanTheColumn()
+    {
+        string tooLong = new string('a', 251) + "@acme.com";
+
+        Assert.Equal(260, tooLong.Length);
+        Assert.False(IsValid(Valid() with { Email = tooLong }));
+    }
+
+    [Fact]
+    public void AcceptsAnEmailAtTheLimit()
+    {
+        string atLimit = new string('a', 247) + "@acme.com";
+
+        Assert.Equal(256, atLimit.Length);
+        Assert.True(IsValid(Valid() with { Email = atLimit }));
+    }
 }

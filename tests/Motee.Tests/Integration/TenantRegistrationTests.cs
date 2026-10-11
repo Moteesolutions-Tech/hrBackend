@@ -112,6 +112,13 @@ public class TenantRegistrationTests(PostgresFixture fixture)
     // sign-up holds the unique slug, so retrying the same company name collides
     // forever. Input here is deliberately past the email column's limit — the
     // service takes pre-validated input, so this fails inside the transaction.
+    //
+    // It throws rather than returning a failed result, and that is the point. The
+    // service used to absorb every database failure into a validation error carrying
+    // the raw Postgres message, which meant a broken deployment reached users as a 400
+    // and never alerted anybody. Only a duplicate address is the caller's to fix now;
+    // everything else propagates — but the transaction is still rolled back on the way
+    // out, which is what the assertions below check.
     [SkippableFact]
     public async Task RollsTheTenantBackWhenTheUserCannotBeCreated()
     {
@@ -120,9 +127,8 @@ public class TenantRegistrationTests(PostgresFixture fixture)
 
         string oversizedEmail = new string('a', 300) + "@acme.com";
 
-        RegisterTenantResult result = await fixture.RegisterAsync(Request(email: oversizedEmail));
-
-        Assert.False(result.Succeeded);
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => fixture.RegisterAsync(Request(email: oversizedEmail)));
 
         await using MoteeDbContext context = fixture.CreateContext();
 
@@ -137,7 +143,9 @@ public class TenantRegistrationTests(PostgresFixture fixture)
         await fixture.ResetAsync();
 
         string oversizedEmail = new string('a', 300) + "@acme.com";
-        await fixture.RegisterAsync(Request(email: oversizedEmail));
+
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () => fixture.RegisterAsync(Request(email: oversizedEmail)));
 
         RegisterTenantResult retry = await fixture.RegisterAsync(Request());
 

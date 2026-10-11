@@ -27,7 +27,18 @@ public sealed class RegisterTenantValidator : AbstractValidator<RegisterTenantRe
 
         RuleFor(request => request.Email)
             .NotEmpty().WithMessage("Work email is required.")
-            .MaximumLength(320)
+
+            // 256, matching the column, not the 320 an address may theoretically be.
+            //
+            // The two disagreed: anything between 257 and 320 passed validation and then
+            // failed at the insert, which came back to the user as a raw Postgres error
+            // about a column width. A validator that permits what storage rejects is not
+            // a validator — the gap is just a server error with a longer path to it.
+            //
+            // Narrowed rather than widening the column: 256 is what Identity itself
+            // defaults to, and addresses longer than that do not occur outside a
+            // standards document.
+            .MaximumLength(256).WithMessage("That email address is too long.")
             .Must(BeAWellFormedEmail).WithMessage("Enter a valid email address.");
 
         RuleFor(request => request.CompanyName)

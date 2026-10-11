@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
+using Npgsql;
 using Motee.Application.Auth;
 using Motee.Application.Notifications;
 using Motee.Application.Tenancy;
@@ -183,22 +184,43 @@ internal sealed class TenantRegistrationService(
                 CountryCode = countryCode.Value,
             };
         }
-        catch (DbUpdateException exception)
+        catch (DbUpdateException exception) when (IsDuplicate(exception))
         {
             await transaction.RollbackAsync(cancellationToken);
-            return RegisterTenantResult.Failed(RootMessage(exception));
+
+            // The only database failure that is the caller's to fix, and only as a
+            // backstop: the address is already checked above, so reaching here means two
+            // registrations raced for the same one.
+            //
+            // A written message, never the exception's. Postgres names the constraint it
+            // rejected, which is internal structure and tells the person nothing they can
+            // act on.
+            return RegisterTenantResult.Conflict(
+                "An account already exists for that email address.");
         }
-    }
-
-    private static string RootMessage(Exception exception)
-    {
-        Exception current = exception;
-
-        while (current.InnerException is not null)
+        catch (DbUpdateException)
         {
-            current = current.InnerException;
+            // Anything else is ours, not theirs.
+            //
+            // This used to return the innermost exception message as a validation error,
+            // which meant a missing column — a broken deployment — came back as a 400
+            // reading "42703: column \"attachment_note\" of relation
+            // \"approval_templates\" does not exist". Three things wrong with that: the
+            // user saw our schema, the user was blamed for our fault, and because it was
+            // a handled 400 rather than an unhandled 500 it never reached the exception
+            // handler, so nothing alerted. Every registration on that environment was
+            // failing and the system's own view was that users kept sending bad input.
+            //
+            // Rolled back and rethrown. The caller gets the generic 500, the detail goes
+            // to the log, and Slack hears about it.
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
         }
-
-        return current.Message;
     }
+
+    // Unique violation, which is the one constraint this path legitimately races on.
+    // Matched on the SQLSTATE rather than on message text, which is localised and
+    // reworded between server versions.
+    internal static bool IsDuplicate(DbUpdateException exception) =>
+        exception.GetBaseException() is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }
