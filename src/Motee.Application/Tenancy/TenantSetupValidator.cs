@@ -20,7 +20,10 @@ public sealed class TenantSetupValidator : AbstractValidator<TenantSetupRequest>
 
         RuleFor(request => request.StructureType)
             .Must(value => StructureTypes.TryParse(value, out _))
-            .WithMessage("Structure must be hierarchical or flat.");
+            // Built from the enum rather than written out. The hand-written version said
+            // "hierarchical or flat" and stayed saying it after Matrix was added, which is
+            // how a validation message starts describing a rule that no longer exists.
+            .WithMessage($"Structure must be one of: {StructureTypes.Names}.");
 
         RuleFor(request => request.ManagerTitle)
             .NotEmpty().WithMessage("Manager title is required.")

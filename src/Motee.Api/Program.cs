@@ -7,6 +7,7 @@ using Motee.Api.Http;
 using Motee.Api.Jobs;
 using Motee.Api.Logging;
 using Motee.Api.OpenApi;
+using Motee.Application.Alerts;
 using Motee.Api.Tenancy;
 using Motee.Api.Versioning;
 using Motee.Application;
@@ -141,6 +142,29 @@ app.UseMoteeRecurringJobs();
 
 app.MapMoteeHealth();
 app.MapControllers();
+
+// Said once, at startup, because alerting being off is otherwise invisible.
+//
+// A missing webhook disables alerting deliberately — there is no fallback URL — but that
+// leaves no way to tell a quiet channel from an unconfigured one, and the first time
+// anybody asks is while something is already broken. One line in the boot log answers it.
+{
+    IAlertSink alerts = app.Services.GetRequiredService<IAlertSink>();
+    ILogger startupLogger = app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Motee.Startup");
+
+    if (alerts.Enabled)
+    {
+        startupLogger.LogInformation(
+            "Alerting is on for environment {Environment}.", app.Environment.EnvironmentName);
+    }
+    else
+    {
+        startupLogger.LogWarning(
+            "Alerting is OFF — Alerts:Slack:WebhookUrl is not configured. Unhandled errors "
+            + "and background job failures will be logged but nobody will be told.");
+    }
+}
 
 app.Run();
 

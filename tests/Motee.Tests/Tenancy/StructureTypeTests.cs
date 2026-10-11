@@ -24,11 +24,15 @@ public class StructureTypeTests
         EnabledModules = [],
     };
 
+    // The guard that was supposed to catch this and did not. It was named for the wizard
+    // and asserted two members while the wizard offered three, so it pinned the
+    // misalignment it existed to prevent — a backend rejecting a choice its own interface
+    // presented, with a validation message naming the other two.
     [Fact]
-    public void HasExactlyTheTwoShapesTheWizardOffers()
+    public void HasExactlyTheShapesTheWizardOffers()
     {
         Assert.Equal(
-            [StructureType.Hierarchical, StructureType.Flat],
+            [StructureType.Hierarchical, StructureType.Flat, StructureType.Matrix],
             Enum.GetValues<StructureType>());
     }
 
@@ -36,6 +40,7 @@ public class StructureTypeTests
     [Theory]
     [InlineData(StructureType.Hierarchical, "\"hierarchical\"")]
     [InlineData(StructureType.Flat, "\"flat\"")]
+    [InlineData(StructureType.Matrix, "\"matrix\"")]
     public void SerialisesToTheSameStringsAsBefore(StructureType value, string expected)
     {
         Assert.Equal(expected, JsonSerializer.Serialize(value, Web));
@@ -46,14 +51,18 @@ public class StructureTypeTests
     [InlineData("flat", StructureType.Flat)]
     [InlineData("Hierarchical", StructureType.Hierarchical)]
     [InlineData("FLAT", StructureType.Flat)]
+    [InlineData("matrix", StructureType.Matrix)]
+    [InlineData("Matrix", StructureType.Matrix)]
     public void ParsesWhateverCasingArrives(string input, StructureType expected)
     {
         Assert.True(StructureTypes.TryParse(input, out StructureType parsed));
         Assert.Equal(expected, parsed);
     }
 
+    // "matrix" used to be here, which recorded that the enum lacked it rather than a
+    // decision to refuse it — the setup wizard has offered Matrix as its third option all
+    // along, so the backend was rejecting a choice its own interface presented.
     [Theory]
-    [InlineData("matrix")]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData(null)]
@@ -69,12 +78,16 @@ public class StructureTypeTests
     [Fact]
     public void AnUnknownValueIsRejectedWithAReadableMessage()
     {
-        string message = _validator.Validate(With("matrix")).Errors
+        string message = _validator.Validate(With("holacracy")).Errors
             .Single(error => error.PropertyName == "StructureType")
             .ErrorMessage;
 
-        Assert.Contains("hierarchical", message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("flat", message, StringComparison.OrdinalIgnoreCase);
+        // Every permitted value, listed. The message is built from the enum, so adding a
+        // shape cannot leave it describing a rule that no longer exists.
+        foreach (string name in Enum.GetNames<StructureType>())
+        {
+            Assert.Contains(name, message, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Theory]
