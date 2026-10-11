@@ -58,9 +58,9 @@ public class TenantSetupValidatorTests
     [Theory]
     [InlineData("hierarchical", true)]
     [InlineData("flat", true)]
-    [InlineData("matrix", false)]
+    [InlineData("matrix", true)]
     [InlineData("", false)]
-    public void StructureTypeIsOneOfTwo(string structureType, bool expected)
+    public void StructureTypeIsOneTheWizardOffers(string structureType, bool expected)
     {
         Assert.Equal(
             expected,
