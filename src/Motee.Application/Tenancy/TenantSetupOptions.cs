@@ -10,7 +10,9 @@ public sealed record TenantSetupOptions
 
     public required IReadOnlyList<CompanySizeOption> CompanySizes { get; init; }
 
-    public required IReadOnlyList<StructureType> StructureTypes { get; init; }
+    // Objects rather than strings, matching CompanySizes and Modules beside them. Each
+    // carries what it permits, so the form renders from the rule instead of restating it.
+    public required IReadOnlyList<StructureTypeCapability> StructureTypes { get; init; }
 
     public required IReadOnlyList<ModuleOption> Modules { get; init; }
 

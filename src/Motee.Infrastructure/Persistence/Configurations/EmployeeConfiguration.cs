@@ -70,6 +70,19 @@ internal sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
             .HasForeignKey(employee => employee.BranchId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // RESTRICT, like the solid line beside it: deleting somebody who is still
+        // recorded as a project manager is the deletion that should be stopped, not one
+        // that silently empties the field.
+        builder.HasOne<Employee>()
+            .WithMany()
+            .HasForeignKey(employee => employee.DottedLineManagerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // "Who is on my project", which is the only question this column answers.
+        builder.HasIndex(employee => employee.DottedLineManagerId)
+            .HasDatabaseName("ix_employees_dotted_line_manager")
+            .HasFilter("dotted_line_manager_id IS NOT NULL");
+
         // "Everyone at this site", which is the branch screen and the branch data scope.
         builder.HasIndex(employee => employee.BranchId)
             .HasDatabaseName("ix_employees_branch");

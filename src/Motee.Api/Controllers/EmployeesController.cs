@@ -451,7 +451,9 @@ public class EmployeesController(
         EmployeeOutcome.DuplicateEmail or EmployeeOutcome.DuplicateEmployeeNumber =>
             MoteeStatusCodes.Conflict,
         EmployeeOutcome.UnknownDepartment or EmployeeOutcome.UnknownManager
-            or EmployeeOutcome.ManagerCycle => MoteeStatusCodes.InvalidRequest,
+            or EmployeeOutcome.ManagerCycle
+            or EmployeeOutcome.UnknownDottedLineManager
+            or EmployeeOutcome.SecondaryReportingNotAllowed => MoteeStatusCodes.InvalidRequest,
         EmployeeOutcome.InvalidStatusChange => MoteeStatusCodes.Conflict,
         _ => MoteeStatusCodes.InternalServerError,
     };
@@ -467,6 +469,14 @@ public class EmployeesController(
             "That would make someone their own manager, directly or through their reports.",
         EmployeeOutcome.InvalidStatusChange =>
             "That status change is not allowed from where this employee is now.",
+
+        // Says what to change, not just what was refused: the setting is on another
+        // screen entirely, and "not allowed" alone sends somebody looking at the form.
+        EmployeeOutcome.SecondaryReportingNotAllowed =>
+            "A second reporting line needs a matrix structure. Change it in "
+            + "Settings before assigning a project manager.",
+        EmployeeOutcome.UnknownDottedLineManager =>
+            "That project manager is not an employee here.",
         _ => "Could not save the employee.",
     };
 }

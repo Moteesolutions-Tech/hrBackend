@@ -101,7 +101,49 @@ public class StructureTypeTests
     [Fact]
     public void OptionsServeTheEnumNotFreeText()
     {
-        Assert.Equal(Enum.GetValues<StructureType>(), TenantSetupOptions.Current.StructureTypes);
+        Assert.Equal(
+            Enum.GetValues<StructureType>(),
+            TenantSetupOptions.Current.StructureTypes.Select(option => option.Id));
+    }
+
+    // Matrix is the only structure that permits a second reporting line, and the wizard
+    // reads that from here rather than recognising the string itself. A client that
+    // hardcoded the rule would be keeping its own copy of it, which is how the enum came
+    // to offer two values while the interface offered three.
+    [Fact]
+    public void OnlyMatrixPermitsASecondReportingLine()
+    {
+        Assert.Equal(
+            [StructureType.Matrix],
+            TenantSetupOptions.Current.StructureTypes
+                .Where(option => option.AllowsSecondaryReporting)
+                .Select(option => option.Id));
+    }
+
+    // Flat says people report to a central point. It is a default, not a constraint —
+    // nothing refuses a second layer afterwards.
+    [Fact]
+    public void OnlyFlatDefaultsTheManagerToTheOwner()
+    {
+        Assert.Equal(
+            [StructureType.Flat],
+            TenantSetupOptions.Current.StructureTypes
+                .Where(option => option.DefaultsManagerToOwner)
+                .Select(option => option.Id));
+    }
+
+    // The guard against the drift that started this. Every member has to be described,
+    // so a new structure cannot be added without deciding what it permits.
+    [Fact]
+    public void EveryStructureDeclaresItsCapabilities()
+    {
+        Assert.Equal(
+            Enum.GetValues<StructureType>().Length,
+            TenantSetupOptions.Current.StructureTypes.Select(option => option.Id).Distinct().Count());
+
+        Assert.All(
+            TenantSetupOptions.Current.StructureTypes,
+            option => Assert.False(string.IsNullOrWhiteSpace(option.Label)));
     }
 
     [Fact]

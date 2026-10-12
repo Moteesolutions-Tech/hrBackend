@@ -6,6 +6,7 @@ using Motee.Domain.Authorization;
 using Motee.Domain.Common;
 using Motee.Domain.Employees;
 using Motee.Domain.Organisation;
+using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
@@ -13,6 +14,7 @@ namespace Motee.Infrastructure.Employees;
 
 internal sealed class EmployeeService(
     MoteeDbContext dbContext,
+    Application.Tenancy.ICurrentTenant currentTenant,
     IAssetService assets,
     AvatarLinker avatars,
     Application.Onboarding.IOnboardingService onboarding,
@@ -175,6 +177,11 @@ internal sealed class EmployeeService(
                     .Where(branch => branch.Id == employee.BranchId)
                     .Select(branch => branch.Name)
                     .FirstOrDefault(),
+                DottedLineManagerId = employee.DottedLineManagerId,
+                DottedLineManagerName = dbContext.Employees
+                    .Where(other => other.Id == employee.DottedLineManagerId)
+                    .Select(other => other.FirstName + " " + other.LastName)
+                    .FirstOrDefault(),
                 EmploymentType = employee.EmploymentType,
                 WorkMode = employee.WorkMode,
                 WorkLocation = employee.WorkLocation,
@@ -252,6 +259,18 @@ internal sealed class EmployeeService(
 
         Apply(employee, request);
         employee.OnboardingMethod = via;
+
+        // Flat companies say people report to a central point, so a new starter with no
+        // manager named gets the account owner rather than being left dangling.
+        //
+        // A default, not a rule: it only fills a blank, and naming a manager overrides it.
+        // Enforcing flatness — refusing a second layer — would be the product arguing
+        // with a label the company chose in its first week.
+        if (employee.ManagerId is null
+            && StructureTypes.Of(await StructureAsync(cancellationToken)).DefaultsManagerToOwner)
+        {
+            employee.ManagerId = await OwnerEmployeeIdAsync(cancellationToken);
+        }
 
         dbContext.Employees.Add(employee);
 
@@ -480,7 +499,62 @@ internal sealed class EmployeeService(
             }
         }
 
+        if (request.DottedLineManagerId is Guid dottedId)
+        {
+            // Refused for any structure but matrix. Ignoring it instead would leave an HR
+            // admin believing they recorded a project manager, with nothing to show they
+            // had not — and the setting that permits it would stay decorative.
+            if (!StructureTypes.AllowsSecondaryReporting(await StructureAsync(cancellationToken)))
+            {
+                return EmployeeOutcome.SecondaryReportingNotAllowed;
+            }
+
+            // Somebody cannot be their own project manager. No cycle walk beyond that:
+            // dotted lines are not a hierarchy — nothing recurses through them — so a
+            // loop between two of them is unusual data, not a hang.
+            if (dottedId == excludingId
+                || !await dbContext.Employees.AnyAsync(
+                    candidate => candidate.Id == dottedId, cancellationToken))
+            {
+                return EmployeeOutcome.UnknownDottedLineManager;
+            }
+        }
+
         return null;
+    }
+
+    // The owner's own employee record, when they have one. The founder often does not —
+    // they registered before any employee existed — so this can be null, and a flat
+    // company's first hire then simply has no manager, which is correct.
+    private async Task<Guid?> OwnerEmployeeIdAsync(CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not Guid tenantId)
+        {
+            return null;
+        }
+
+        // Users are not covered by the tenant filter, so this needs its own clause.
+        return await dbContext.Users
+            .AsNoTracking()
+            .Where(user => user.TenantId == tenantId && user.IsOwner && user.EmployeeId != null)
+            .Select(user => user.EmployeeId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<StructureType> StructureAsync(CancellationToken cancellationToken)
+    {
+        if (currentTenant.TenantId is not Guid tenantId)
+        {
+            return StructureType.Hierarchical;
+        }
+
+        TenantSettings? settings = await dbContext.Tenants
+            .AsNoTracking()
+            .Where(tenant => tenant.Id == tenantId)
+            .Select(tenant => tenant.Settings)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return settings?.StructureType ?? StructureType.Hierarchical;
     }
 
     // Walks up from the proposed manager. If the employee appears, pointing one at
@@ -653,6 +727,7 @@ internal sealed class EmployeeService(
         employee.JobTitle = Trimmed(request.JobTitle);
         employee.DepartmentId = request.DepartmentId;
         employee.BranchId = request.BranchId;
+        employee.DottedLineManagerId = request.DottedLineManagerId;
         employee.EmploymentType = request.EmploymentType;
         employee.ManagerId = request.ManagerId;
         employee.StartDate = request.StartDate;
@@ -698,6 +773,11 @@ internal sealed class EmployeeService(
             BranchName = dbContext.Branches
                 .Where(branch => branch.Id == employee.BranchId)
                 .Select(branch => branch.Name)
+                .FirstOrDefault(),
+            DottedLineManagerId = employee.DottedLineManagerId,
+            DottedLineManagerName = dbContext.Employees
+                .Where(other => other.Id == employee.DottedLineManagerId)
+                .Select(other => other.FirstName + " " + other.LastName)
                 .FirstOrDefault(),
             EmploymentType = employee.EmploymentType,
             ManagerId = employee.ManagerId,

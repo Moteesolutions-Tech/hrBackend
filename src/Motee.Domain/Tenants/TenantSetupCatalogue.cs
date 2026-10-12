@@ -64,8 +64,12 @@ public static class TenantSetupCatalogue
     public static readonly IReadOnlyList<string> Modules =
         [.. ModuleOptions.Select(option => option.Id)];
 
-    public static readonly IReadOnlyList<StructureType> StructureTypes =
-        [.. Enum.GetValues<StructureType>()];
+    // The capabilities, not the bare names. The wizard has to know whether to show a
+    // second manager field, and that rule belongs here rather than as an
+    // `if (structureType === "matrix")` in the client — a copy of a backend rule, in the
+    // one place that cannot be kept in step with it.
+    public static readonly IReadOnlyList<StructureTypeCapability> StructureTypes =
+        Domain.Tenants.StructureTypes.All;
 
     // Suggestions, not a closed set. The wizard also offers "Custom", so the
     // validator accepts any reasonable string — these only pre-fill the dropdown.

@@ -43,8 +43,8 @@ public class TenantSetupOptionsTests
     {
         Assert.All(TenantSetupOptions.Current.StructureTypes, structure =>
             Assert.True(
-                _validator.Validate(With(structure: structure.ToString())).IsValid,
-                structure.ToString()));
+                _validator.Validate(With(structure: structure.Id.ToString())).IsValid,
+                structure.Id.ToString()));
     }
 
     [Fact]
