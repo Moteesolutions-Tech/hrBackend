@@ -56,7 +56,23 @@ public class Employee : ITenantScoped
 
     // Self-referencing: this is the org hierarchy that PermissionScope.Team narrows
     // against, and that approval routing walks to resolve LINE_MANAGER.
+    //
+    // The solid line — the functional manager, who owns the person. Everything that asks
+    // "who manages them" means this one.
     public Guid? ManagerId { get; set; }
+
+    // The dotted line: a project manager who owns the work rather than the person.
+    //
+    // Only meaningful in a matrix structure, and only accepted there — a company that has
+    // not said it runs a matrix cannot set one, or the field becomes a second manager
+    // nobody agreed to and nothing reads consistently.
+    //
+    // Deliberately does not affect approvals or record access. LINE_MANAGER keeps
+    // resolving the solid line, because a project manager approving somebody's leave is
+    // the functional manager's call; and DirectReports keeps meaning ManagerId, because a
+    // working relationship is not grounds to read somebody's HR record. Both would be
+    // real changes to who can do what, arriving as a side effect of a structure setting.
+    public Guid? DottedLineManagerId { get; set; }
 
     public EmployeeStatus Status { get; set; } = EmployeeStatus.Pending;
 

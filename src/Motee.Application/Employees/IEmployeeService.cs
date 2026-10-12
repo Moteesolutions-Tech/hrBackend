@@ -80,6 +80,14 @@ public enum EmployeeOutcome
 
     // An asset in the wizard's Assets step carries a tag another asset already has.
     DuplicateAssetTag,
+
+    // A second reporting line was given for a company that does not run a matrix.
+    // Refused rather than ignored: silently dropping it leaves an HR admin believing
+    // they recorded a project manager, and nothing to show they did not.
+    SecondaryReportingNotAllowed,
+
+    // The dotted-line manager is not an employee here, or is the person themselves.
+    UnknownDottedLineManager,
 }
 
 public sealed record EmployeeQuery : PagedQuery
@@ -133,6 +141,9 @@ public sealed record EmployeeRequest : SelfProfileRequest
     // Where they are posted. Optional: a company that has not set up branches
     // must still be able to add people.
     public Guid? BranchId { get; init; }
+
+    // The project manager, for matrix companies. Refused for any other structure.
+    public Guid? DottedLineManagerId { get; init; }
 
     public required EmploymentType EmploymentType { get; init; }
 
@@ -215,6 +226,10 @@ public sealed record EmployeeListItemDto
 
     public Guid? BranchId { get; init; }
 
+    public Guid? DottedLineManagerId { get; init; }
+
+    public string? DottedLineManagerName { get; init; }
+
     public string? BranchName { get; init; }
 
     public string? Department { get; init; }
@@ -289,6 +304,11 @@ public sealed record EmployeeDto
     public Guid? DepartmentId { get; init; }
 
     public Guid? BranchId { get; init; }
+
+    public Guid? DottedLineManagerId { get; init; }
+
+    // Resolved for display, like the manager's own name.
+    public string? DottedLineManagerName { get; init; }
 
     public string? Department { get; init; }
 
