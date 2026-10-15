@@ -21,7 +21,7 @@ public class StructureTypeTests
         ManagerTitle = "Line Manager",
         DepartmentLabel = "Department",
         StructureType = structureType,
-        EnabledModules = [],
+        EnabledModules = ["employee-management"],
     };
 
     // The guard that was supposed to catch this and did not. It was named for the wizard

@@ -75,10 +75,13 @@ public class TenantSetupValidatorTests
             "EnabledModules"));
     }
 
+    // The wizard says "at least one required" and for a while only the wizard did, so a
+    // company could finish setup with everything off — leaving every module screen to
+    // cope with a tenant that enabled nothing.
     [Fact]
-    public void EnablingNothingIsAllowed()
+    public void EnablingNothingIsRefused()
     {
-        Assert.Empty(ErrorsFor(Valid() with { EnabledModules = [] }, "EnabledModules"));
+        Assert.NotEmpty(ErrorsFor(Valid() with { EnabledModules = [] }, "EnabledModules"));
     }
 
     [Fact]
@@ -134,11 +137,49 @@ public class TenantSetupValidatorTests
         Assert.True(errors >= 7, $"expected each field reported, got {errors}");
     }
 
+    // The guard that was meant to catch this and did not.
+    //
+    // It was named for the wizard and asserted six modules while the wizard offered
+    // eight, so ticking Learning or Benefits failed setup at the final step with "one or
+    // more selected modules do not exist" — the interface offering what the backend
+    // refuses. Counts also let a swap through unnoticed, so this names the ids: they are
+    // the contract, and the order is what the grid renders in.
     [Fact]
     public void TheCatalogueMatchesTheWizard()
     {
+        Assert.Equal(
+            [
+                "employee-management",
+                "attendance",
+                "leave-management",
+                "recruitment",
+                "performance",
+                "learning",
+                "payroll",
+                "benefits",
+            ],
+            TenantSetupCatalogue.Modules);
+
         Assert.Equal(15, TenantSetupCatalogue.Industries.Count);
         Assert.Equal(6, TenantSetupCatalogue.CompanySizes.Count);
-        Assert.Equal(6, TenantSetupCatalogue.Modules.Count);
+    }
+
+    // You cannot pre-tick something that is not offered.
+    [Fact]
+    public void EveryDefaultIsAnOfferedModule()
+    {
+        Assert.All(
+            TenantSetupCatalogue.DefaultModules,
+            id => Assert.Contains(id, TenantSetupCatalogue.Modules));
+    }
+
+    // And at least one has to be, or the wizard opens with nothing selected against a
+    // rule demanding one — a form nobody can submit until they work out why.
+    [Fact]
+    public void SomethingIsEnabledByDefault()
+    {
+        Assert.NotEmpty(TenantSetupCatalogue.DefaultModules);
+        Assert.True(_validator.Validate(
+            Valid() with { EnabledModules = TenantSetupCatalogue.DefaultModules }).IsValid);
     }
 }

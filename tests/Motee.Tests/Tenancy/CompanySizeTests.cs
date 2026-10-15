@@ -14,7 +14,7 @@ public class CompanySizeTests
         ManagerTitle = "Line Manager",
         DepartmentLabel = "Department",
         StructureType = "hierarchical",
-        EnabledModules = [],
+        EnabledModules = ["employee-management"],
     };
 
     [Theory]

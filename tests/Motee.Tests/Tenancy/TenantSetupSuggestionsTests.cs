@@ -17,7 +17,7 @@ public class TenantSetupSuggestionsTests
         ManagerTitle = managerTitle ?? "Line Manager",
         DepartmentLabel = departmentLabel ?? "Department",
         StructureType = "hierarchical",
-        EnabledModules = [],
+        EnabledModules = ["employee-management"],
     };
 
     [Fact]

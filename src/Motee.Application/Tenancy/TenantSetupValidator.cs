@@ -43,6 +43,10 @@ public sealed class TenantSetupValidator : AbstractValidator<TenantSetupRequest>
             .WithMessage("Enter a domain such as acme.com.");
 
         RuleFor(request => request.EnabledModules)
+            // The wizard says "at least one required" and until now only the wizard did.
+            // A company could finish setup with everything off, and every module screen
+            // then has to cope with a tenant that enabled nothing.
+            .NotEmpty().WithMessage("Choose at least one module to activate.")
             .Must(modules => modules.All(TenantSetupCatalogue.Modules.Contains))
             .WithMessage("One or more selected modules do not exist.")
             .Must(modules => modules.Distinct(StringComparer.Ordinal).Count() == modules.Count)
