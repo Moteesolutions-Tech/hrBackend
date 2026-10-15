@@ -21,7 +21,9 @@ public class TenantSetupOptionsTests
         ManagerTitle = "Line Manager",
         DepartmentLabel = "Department",
         StructureType = structure ?? "hierarchical",
-        EnabledModules = modules ?? [],
+        // A module is required now, so the baseline carries one — these helpers
+        // exist to isolate the field under test, not to exercise the minimum.
+        EnabledModules = modules ?? ["employee-management"],
     };
 
     [Fact]
