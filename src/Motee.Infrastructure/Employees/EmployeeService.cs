@@ -260,18 +260,6 @@ internal sealed class EmployeeService(
         Apply(employee, request);
         employee.OnboardingMethod = via;
 
-        // Flat companies say people report to a central point, so a new starter with no
-        // manager named gets the account owner rather than being left dangling.
-        //
-        // A default, not a rule: it only fills a blank, and naming a manager overrides it.
-        // Enforcing flatness — refusing a second layer — would be the product arguing
-        // with a label the company chose in its first week.
-        if (employee.ManagerId is null
-            && StructureTypes.Of(await StructureAsync(cancellationToken)).DefaultsManagerToOwner)
-        {
-            employee.ManagerId = await OwnerEmployeeIdAsync(cancellationToken);
-        }
-
         dbContext.Employees.Add(employee);
 
         // Added before the save, so the wizard's later steps land in the same
@@ -303,13 +291,17 @@ internal sealed class EmployeeService(
         return EmployeeResult.Ok((await GetAsync(employee.Id, cancellationToken))!);
     }
 
-    // Covers the one person who signs up before any employee exists: the admin who
-    // registered the tenant. When they later create their own record, the account is
-    // already there, so it is linked here rather than left without an employee — and
-    // without it their Team and Self scope stay empty.
+    // Links an account that already exists to the employee record created for it.
     //
-    // The other direction is the invite flow, which creates the account from the
-    // employee and links it at that point.
+    // The owner is excluded, and used to be the whole reason this existed: they sign up
+    // before any employee does, so creating their own record was how they acquired one.
+    // They no longer may — an owner runs the account rather than working there, so they
+    // do not appear in the directory, take no leave and sit in nobody's reporting line.
+    // The database refuses the pairing outright; skipping them here is what turns that
+    // into "the record was created, unlinked" instead of a constraint violation.
+    //
+    // The other direction is the invite flow, which creates the account from the employee
+    // and links it at that point.
     private async Task LinkExistingUserAsync(Employee employee, CancellationToken cancellationToken)
     {
         string email = employee.Email;
@@ -321,6 +313,7 @@ internal sealed class EmployeeService(
             .FirstOrDefaultAsync(
                 candidate => candidate.TenantId == employee.TenantId
                     && candidate.EmployeeId == null
+                    && !candidate.IsOwner
                     && candidate.NormalizedEmail == email.ToUpperInvariant(),
                 cancellationToken);
 
@@ -521,24 +514,6 @@ internal sealed class EmployeeService(
         }
 
         return null;
-    }
-
-    // The owner's own employee record, when they have one. The founder often does not —
-    // they registered before any employee existed — so this can be null, and a flat
-    // company's first hire then simply has no manager, which is correct.
-    private async Task<Guid?> OwnerEmployeeIdAsync(CancellationToken cancellationToken)
-    {
-        if (currentTenant.TenantId is not Guid tenantId)
-        {
-            return null;
-        }
-
-        // Users are not covered by the tenant filter, so this needs its own clause.
-        return await dbContext.Users
-            .AsNoTracking()
-            .Where(user => user.TenantId == tenantId && user.IsOwner && user.EmployeeId != null)
-            .Select(user => user.EmployeeId)
-            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<StructureType> StructureAsync(CancellationToken cancellationToken)

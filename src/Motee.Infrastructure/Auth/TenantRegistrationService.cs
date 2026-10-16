@@ -23,7 +23,6 @@ internal sealed class TenantRegistrationService(
     AccessLevelSeeder accessLevels,
     Approvals.ApprovalTemplateSeeder approvalTemplates,
     Leave.LeaveSeeder leave,
-    TimeProvider timeProvider,
     IEmailDispatcher email,
     AppLinks links,
     IMemoryCache noticeCache,
@@ -140,10 +139,10 @@ internal sealed class TenantRegistrationService(
                         created.Errors.Select(error => error.Description).ToArray());
             }
 
-            // The tenant's own access levels, and the founder holding the admin one.
-            // Seeded inside the same transaction as the tenant: a company that exists
-            // with no levels cannot create the level it would need to create levels.
-            IReadOnlyList<AccessLevel> levels = accessLevels.Seed(tenant.Id);
+            // The tenant's own access levels, held by nobody yet. Seeded inside the same
+            // transaction as the tenant: a company that exists with no levels cannot
+            // create the level it would need to create levels.
+            accessLevels.Seed(tenant.Id);
 
             // The approval chain the onboarding module starts. Seeded here so a company
             // that invites somebody on their first day is not stopped by there being no
@@ -156,18 +155,18 @@ internal sealed class TenantRegistrationService(
             // the two on the day it was written.
             leave.Seed(tenant.Id, countryCode);
 
-            dbContext.UserAccessLevels.Add(new UserAccessLevel
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenant.Id,
-                UserId = user.Id,
-                AccessLevelId = AccessLevelSeeder.FounderLevel(levels).Id,
-                AssignedAt = timeProvider.GetUtcNow(),
-            });
-
-            // What actually guarantees they can never be locked out. The level above
-            // is so they appear on the Access Levels screen holding something, rather
-            // than as an unexplained exception.
+            // The owner, and deliberately nothing else.
+            //
+            // They used to be handed the HR Admin level too, so the Access Levels screen
+            // would show them holding something rather than as an unexplained exception.
+            // That made the registrant the HR admin by construction — and HR Admin is a
+            // job, which a company gives to whoever does it. A new tenant now has nobody
+            // holding it until the owner invites or onboards one, and "who are the HR
+            // admins" has an honest answer from the first day, including "nobody yet".
+            //
+            // The owner is the exception, and showing them as one is correct: the bypass
+            // is what guarantees a company can never lock itself out by misconfiguring
+            // its own levels, and that is a property of the account rather than a role.
             user.IsOwner = true;
 
             await dbContext.SaveChangesAsync(cancellationToken);

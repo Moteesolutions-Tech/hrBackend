@@ -246,58 +246,6 @@ public class MatrixReportingTests(PostgresFixture fixture)
             reach.Items, row => row.Name.StartsWith("Ben", StringComparison.Ordinal));
     }
 
-    // Flat says people report to a central point, so a new starter with nobody named gets
-    // the owner rather than dangling.
-    [SkippableFact]
-    public async Task AFlatCompanyDefaultsTheManagerToTheOwner()
-    {
-        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
-        await using ServiceProvider provider = await ArrangeAsync(StructureType.Flat);
 
-        Guid ownerEmployeeId = (await HireAsync(provider, "Ada", "ada-staff@acme.com")).Employee!.Id;
 
-        await using (MoteeDbContext context = fixture.CreateContext(_tenantId))
-        {
-            Motee.Infrastructure.Identity.ApplicationUser owner =
-                await context.Users.FirstAsync(user => user.IsOwner);
-
-            owner.EmployeeId = ownerEmployeeId;
-            await context.SaveChangesAsync();
-        }
-
-        EmployeeResult hired = await HireAsync(provider, "Ben", "ben@acme.com");
-
-        Assert.True(hired.Succeeded, hired.Outcome.ToString());
-        Assert.Equal(ownerEmployeeId, hired.Employee!.ManagerId);
-    }
-
-    // A default, not a rule. Naming a manager overrides it, and nothing refuses the
-    // second layer that creates — a company picks "flat" to describe itself, not to be
-    // stopped when it hires its first team lead.
-    [SkippableFact]
-    public async Task TheFlatDefaultDoesNotOverrideANamedManager()
-    {
-        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
-        await using ServiceProvider provider = await ArrangeAsync(StructureType.Flat);
-
-        Guid lead = (await HireAsync(provider, "Cara", "cara@acme.com")).Employee!.Id;
-
-        EmployeeResult hired = await HireAsync(provider, "Ben", "ben@acme.com", manager: lead);
-
-        Assert.True(hired.Succeeded, hired.Outcome.ToString());
-        Assert.Equal(lead, hired.Employee!.ManagerId);
-    }
-
-    // Hierarchical leaves a blank blank. Only flat makes the claim about a central point.
-    [SkippableFact]
-    public async Task AHierarchicalCompanyDefaultsNothing()
-    {
-        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
-        await using ServiceProvider provider = await ArrangeAsync(StructureType.Hierarchical);
-
-        EmployeeResult hired = await HireAsync(provider, "Ben", "ben@acme.com");
-
-        Assert.True(hired.Succeeded, hired.Outcome.ToString());
-        Assert.Null(hired.Employee!.ManagerId);
-    }
 }

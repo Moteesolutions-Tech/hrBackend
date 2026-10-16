@@ -9,7 +9,9 @@ namespace Motee.Application.Common;
 // tested once rather than repeated per module.
 public interface ICurrentEmployee
 {
-    // Null when nobody is signed in, or when the account has no employee record — true
-    // for the admin who registered the tenant before any employees existed.
+    // Null when nobody is signed in, or when the account has no employee record. The
+    // account owner is permanently in the second case: they run the company's account
+    // rather than working there, so the employee-shaped surfaces have nothing to show
+    // them and that is the correct answer rather than a missing row.
     Task<Guid?> IdAsync(CancellationToken cancellationToken = default);
 }
