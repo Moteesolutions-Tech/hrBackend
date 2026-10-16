@@ -89,6 +89,4 @@ internal sealed class AccessLevelSeeder(MoteeDbContext dbContext, TimeProvider t
     // What the person who registered the tenant gets. Their owner flag is what
     // actually guarantees access; this is so they appear on the Access Levels screen
     // holding something, rather than as an unexplained exception.
-    public static AccessLevel FounderLevel(IReadOnlyList<AccessLevel> seeded) =>
-        seeded.Single(level => level.TemplateSlug == Roles.ToSlug(Role.HrAdmin));
 }

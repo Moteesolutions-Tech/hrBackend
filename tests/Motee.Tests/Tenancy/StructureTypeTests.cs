@@ -120,17 +120,6 @@ public class StructureTypeTests
                 .Select(option => option.Id));
     }
 
-    // Flat says people report to a central point. It is a default, not a constraint —
-    // nothing refuses a second layer afterwards.
-    [Fact]
-    public void OnlyFlatDefaultsTheManagerToTheOwner()
-    {
-        Assert.Equal(
-            [StructureType.Flat],
-            TenantSetupOptions.Current.StructureTypes
-                .Where(option => option.DefaultsManagerToOwner)
-                .Select(option => option.Id));
-    }
 
     // The guard against the drift that started this. Every member has to be described,
     // so a new structure cannot be added without deciding what it permits.

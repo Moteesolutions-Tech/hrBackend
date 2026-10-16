@@ -13,8 +13,12 @@ using Motee.Infrastructure.Persistence;
 
 namespace Motee.Tests.Integration;
 
-// The admin is the one person whose account exists before any employee does, so
-// theirs is the only link that cannot be made when the account is created.
+// The owner's account exists before any employee does, and now stays that way.
+//
+// Creating an employee record with their address used to attach it to their login, which
+// was how the founder acquired one. They no longer may: an owner runs the account rather
+// than working there, so they are not in the directory, take no leave and sit in nobody's
+// reporting line. The linking mechanism survives for ordinary accounts; it skips owners.
 [Collection(PostgresCollection.Name)]
 public class OnboardingGapsTests(PostgresFixture fixture)
 {
@@ -88,10 +92,11 @@ public class OnboardingGapsTests(PostgresFixture fixture)
         Assert.Equal(EmployeeOutcome.UnknownDepartment, result.Outcome);
     }
 
-    // Without this the admin's Team and Self scope stay empty for ever, because the
-    // employee_id claim is never populated.
+    // The inverse of what this file used to assert. Somebody may still want a directory
+    // row for the person who signed up — they are a real person at a real company — but
+    // it is a separate thing from their login, and the two no longer meet.
     [SkippableFact]
-    public async Task CreatingTheirOwnRecordLinksTheAdminsAccount()
+    public async Task CreatingARecordWithTheOwnersAddressDoesNotLinkTheirAccount()
     {
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         (Guid tenantId, Guid userId, ServiceProvider provider) = await RegisterAsync();
@@ -102,16 +107,21 @@ public class OnboardingGapsTests(PostgresFixture fixture)
         EmployeeResult created = await Resolve<IEmployeeService>(owned)
             .CreateAsync(Employee(departmentId, AdminEmail));
 
+        // The record is created — somebody may genuinely want a row for that person —
+        // but the owner's login does not become it.
         Assert.True(created.Succeeded, created.Outcome.ToString());
 
         await using MoteeDbContext context = fixture.CreateContext(tenantId);
         ApplicationUser user = await context.Users.SingleAsync(candidate => candidate.Id == userId);
 
-        Assert.Equal(created.Employee!.Id, user.EmployeeId);
+        Assert.Null(user.EmployeeId);
     }
 
+    // The owner reaches everything through the bypass, so Self scope is moot for them —
+    // but the employee-shaped surfaces are genuinely empty, and that is correct rather
+    // than a missing record. Pinned so nobody "fixes" it by linking them again.
     [SkippableFact]
-    public async Task TheLinkedAdminCanSeeThemselvesUnderSelfScope()
+    public async Task TheOwnerHasNoEmployeeRecordToActAs()
     {
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         (_, _, ServiceProvider provider) = await RegisterAsync();
@@ -119,23 +129,16 @@ public class OnboardingGapsTests(PostgresFixture fixture)
 
         Guid departmentId = await DepartmentAsync(owned);
 
-        Guid employeeId = (await Resolve<IEmployeeService>(owned)
-            .CreateAsync(Employee(departmentId, AdminEmail))).Employee!.Id;
+        await Resolve<IEmployeeService>(owned).CreateAsync(Employee(departmentId, AdminEmail));
 
-        PagedResult<EmployeeListItemDto> page = await Resolve<IEmployeeService>(owned)
-            .ListAsync(new EmployeeQuery
-            {
-                Scope = new DataScope { Kind = DataScopeKind.Self },
-                ViewerEmployeeId = employeeId,
-            });
-
-        Assert.Single(page.Items);
-        Assert.Equal(1, page.TotalItems);
+        Assert.Null(await Resolve<ICurrentEmployee>(owned).IdAsync());
     }
 
-    // An address that is not the admin's must not attach to their account.
+    // An address that is not the owner's must not attach to their account either. Weaker
+    // than it was — nothing links to an owner now — but it is the assertion that would
+    // catch a match on tenant alone.
     [SkippableFact]
-    public async Task AnUnrelatedEmployeeDoesNotLinkToTheAdmin()
+    public async Task AnUnrelatedEmployeeDoesNotLinkToTheOwner()
     {
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         (Guid tenantId, Guid userId, ServiceProvider provider) = await RegisterAsync();
@@ -151,29 +154,63 @@ public class OnboardingGapsTests(PostgresFixture fixture)
         Assert.Null((await context.Users.SingleAsync(candidate => candidate.Id == userId)).EmployeeId);
     }
 
-    // Linking happens once; a later record with the same address is a duplicate and
-    // never steals an account that is already attached.
+    // The half of the rule that is easy to lose: excluding owners must not switch linking
+    // off for everybody. An ordinary account with no employee record still picks one up
+    // when their record is created — this is the path an HR admin invited by the owner
+    // takes, so breaking it would leave the first HR admin unable to act as an employee.
     [SkippableFact]
-    public async Task AnAlreadyLinkedAccountIsNotRelinked()
+    public async Task AnOrdinaryAccountStillLinks()
     {
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
-        (Guid tenantId, Guid userId, ServiceProvider provider) = await RegisterAsync();
+        (Guid tenantId, _, ServiceProvider provider) = await RegisterAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid departmentId = await DepartmentAsync(owned);
+        Guid userId = Guid.NewGuid();
+
+        await using (MoteeDbContext seed = fixture.CreateContext(tenantId))
+        {
+            seed.Users.Add(new ApplicationUser
+            {
+                Id = userId,
+                TenantId = tenantId,
+                FirstName = "Bola",
+                LastName = "Okafor",
+                Email = "bola@acme.com",
+                NormalizedEmail = "BOLA@ACME.COM",
+                EmailConfirmed = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        EmployeeResult created = await Resolve<IEmployeeService>(owned)
+            .CreateAsync(Employee(departmentId, "bola@acme.com", "Bola"));
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.Equal(
+            created.Employee!.Id,
+            (await context.Users.SingleAsync(candidate => candidate.Id == userId)).EmployeeId);
+    }
+
+    // One address, one employee. Untouched by the owner rule: the refusal comes from the
+    // employee table, not from who is linked to what.
+    [SkippableFact]
+    public async Task ASecondRecordForTheSameAddressIsRefused()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (_, _, ServiceProvider provider) = await RegisterAsync();
         await using ServiceProvider owned = provider;
 
         Guid departmentId = await DepartmentAsync(owned);
 
-        Guid firstId = (await Resolve<IEmployeeService>(owned)
-            .CreateAsync(Employee(departmentId, AdminEmail))).Employee!.Id;
+        await Resolve<IEmployeeService>(owned).CreateAsync(Employee(departmentId, AdminEmail));
 
         EmployeeResult second = await Resolve<IEmployeeService>(owned)
             .CreateAsync(Employee(departmentId, AdminEmail, "Someone"));
 
         Assert.Equal(EmployeeOutcome.DuplicateEmail, second.Outcome);
-
-        await using MoteeDbContext context = fixture.CreateContext(tenantId);
-
-        Assert.Equal(
-            firstId,
-            (await context.Users.SingleAsync(candidate => candidate.Id == userId)).EmployeeId);
     }
 }

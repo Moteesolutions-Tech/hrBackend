@@ -12,10 +12,14 @@ public enum StructureType
 
     // Everyone reporting to a central point, with few layers between.
     //
-    // Deliberately not enforced as a depth limit. A company picks this in its first week
-    // to describe itself, and a rule blocking their first team lead would be the product
-    // arguing with a label they chose. It seeds a default instead — see
-    // StructureTypeCapability.DefaultsManagerToOwner.
+    // Descriptive only. Not enforced as a depth limit — a company picks this in its first
+    // week to describe itself, and a rule blocking their first team lead would be the
+    // product arguing with a label they chose.
+    //
+    // It briefly defaulted a new starter's manager to the account owner, which stopped
+    // being possible when the owner stopped being an employee: there is no central
+    // employee to point at, and guessing at one is worse than leaving the blank for
+    // whoever the company appoints.
     Flat,
 
     // Two managers at once: a functional one who owns the person, and a project one who
@@ -40,10 +44,6 @@ public sealed record StructureTypeCapability
     // alone, and the reason this record exists at all.
     public required bool AllowsSecondaryReporting { get; init; }
 
-    // Whether a new employee with no manager named should default to the account owner.
-    // Flat says people report to a central point; this is that claim, as a default rather
-    // than a constraint.
-    public required bool DefaultsManagerToOwner { get; init; }
 }
 
 public static class StructureTypes
@@ -57,21 +57,18 @@ public static class StructureTypes
             Id = StructureType.Hierarchical,
             Label = "Hierarchical Structure",
             AllowsSecondaryReporting = false,
-            DefaultsManagerToOwner = false,
         },
         new()
         {
             Id = StructureType.Flat,
             Label = "Flat Structure",
             AllowsSecondaryReporting = false,
-            DefaultsManagerToOwner = true,
         },
         new()
         {
             Id = StructureType.Matrix,
             Label = "Matrix Structure",
             AllowsSecondaryReporting = true,
-            DefaultsManagerToOwner = false,
         },
     ];
 

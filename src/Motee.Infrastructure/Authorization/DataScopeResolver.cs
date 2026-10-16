@@ -17,9 +17,13 @@ internal sealed class DataScopeResolver(MoteeDbContext dbContext) : IDataScopeRe
             return scope;
         }
 
-        // No employee record — the admin who registered the tenant before anybody was
-        // hired, or a platform operator. There is nothing to be relative to, so the scope
-        // reaches nothing rather than everything.
+        // No employee record — the account owner, who is never one, or a platform
+        // operator. There is nothing to be relative to, so the scope reaches nothing
+        // rather than everything.
+        //
+        // The owner does not arrive here in practice: the bypass hands them everything
+        // before a holder-relative scope is resolved. This stays the safe answer for
+        // when they do.
         if (holderEmployeeId is not Guid employeeId)
         {
             return Empty(scope.Kind);
