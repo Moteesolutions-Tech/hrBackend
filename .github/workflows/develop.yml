@@ -89,6 +89,17 @@ jobs:
       # Quoted heredoc delimiter, so the runner's shell leaves $(...) and $VAR alone
       # and they reach the instance intact. GitHub still substitutes ${{ }}, which
       # happens before the shell ever sees this.
+      #
+      # The image prune runs first, not last. It used to be the final command, after
+      # the health check — so any deploy that failed never reached it, and left
+      # another image behind. Three failures in a row and the disk is full, at which
+      # point the SSM agent cannot write its own output files and the run comes back
+      # Failed with both streams empty and nothing to debug. One bad deploy became
+      # self-sustaining. Running it before the pull also frees the space at the
+      # moment it is actually needed, which is the pull itself.
+      #
+      # until=24h keeps anything from the last day, so yesterday's image is still
+      # there to roll back to.
       - name: Create SSM Parameters
         run: |
           cat >/tmp/ssm-parameters.json <<'EOF'
@@ -96,6 +107,10 @@ jobs:
             "commands": [
               "set -e",
               "cd ${{ env.DEPLOY_PATH }}",
+              "echo 'Disk before deploy:'",
+              "df -h / | tail -1",
+              "echo 'Reclaiming space from old images...'",
+              "docker image prune -af --filter until=24h",
               "echo 'Logging into Amazon ECR...'",
               "aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com",
               "echo 'Pulling latest image...'",
@@ -105,7 +120,6 @@ jobs:
               "echo 'Waiting for the API to answer /health...'",
               "for i in $(seq 1 24); do if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then echo 'API is responding.'; break; fi; sleep 5; done",
               "if ! curl -fsS http://localhost:8080/health >/dev/null 2>&1; then echo 'API did not come up within two minutes.'; docker compose ps -a; docker inspect -f 'exit={{.State.ExitCode}} error={{.State.Error}}' backend-api 2>/dev/null || true; echo 'Container output is in CloudWatch: log group /ec2/dev/backend/hr'; exit 1; fi",
-              "docker image prune -af --filter until=24h",
               "echo 'Deployment complete.'"
             ]
           }
@@ -140,6 +154,22 @@ jobs:
 
             sleep 10
           done
+
+          # Printed before the output streams, because when something fails at the
+          # agent level rather than inside the script, both streams come back empty
+          # and these two fields are the only thing that says why — "Undeliverable"
+          # for an instance SSM cannot reach, a plugin error when the agent could
+          # not write its output files because the disk was full. Without them a
+          # failure of that kind shows as an empty log and looks like the deploy
+          # itself broke.
+          echo ""
+          echo "========== INVOCATION =========="
+
+          aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.MOTEE_DEVELOPMENT_ENVIRONMENT_INSTANCE_ID }}" \
+            --query "{Status:Status,Details:StatusDetails,ResponseCode:ResponseCode}" \
+            --output table || true
 
           echo ""
           echo "========== REMOTE STDOUT =========="
