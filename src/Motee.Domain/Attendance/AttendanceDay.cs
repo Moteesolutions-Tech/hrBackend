@@ -89,10 +89,11 @@ public static class AttendanceDay
             // nothing to have failed to turn up for. Somebody who came in anyway is
             // present, and all of it is overtime.
             //
-            // A non-working day with no punch should never reach here: nothing
-            // happened, so there is no day to report. Marking it absent would put the
-            // entire company down as absent every Sunday.
-            return AttendanceStatus.Present;
+            // With no punch it is NotClockedIn rather than Present, and never Absent.
+            // This is reached every weekend — the clock widget asks for today whether
+            // or not today is a working day — and reporting the whole company present
+            // on a Saturday is as wrong as reporting them absent.
+            return arrived is null ? AttendanceStatus.NotClockedIn : AttendanceStatus.Present;
         }
 
         if (arrived is null)

@@ -104,6 +104,13 @@ internal sealed class TenantRegistrationService(
                 CountryCode = countryCode,
                 Plan = "starter",
                 Status = "trial",
+
+                // Set from the country at birth. Attendance decides which calendar day
+                // a punch belongs to with it, and an empty zone has no safe fallback.
+                Settings = new TenantSettings
+                {
+                    TimeZoneId = TenantClock.DefaultFor(countryCode),
+                },
                 CreatedAt = DateTimeOffset.UtcNow,
                 TrialEndsAt = DateTimeOffset.UtcNow.AddDays(30),
             };
