@@ -71,6 +71,14 @@ public sealed record InviteRequest
     public DateOnly? StartDate { get; init; }
 
     public Guid? ManagerId { get; init; }
+
+    // What they are being hired to do, in permission terms. Applied when they accept,
+    // because a level is held by an account and there is no account until then.
+    //
+    // Checked now as well as then, so an owner choosing a level that cannot be granted
+    // hears about it while they are looking at the form — not in two weeks, silently,
+    // when somebody else finishes a wizard.
+    public Guid? AccessLevelId { get; init; }
 }
 
 public sealed record InviteResult
@@ -139,6 +147,24 @@ public sealed record PendingInvitationDto
     // Separate from ExpiresAt so the UI does not have to compare clocks itself, and
     // so "expired" means the same thing here as it does on the join page.
     public required bool Expired { get; init; }
+
+    // When the email reached the mail provider, or null if it never has.
+    //
+    // SentAt above is when the invitation was created, which is not the same thing and
+    // was the only date here — so somebody ignoring their link and somebody who never
+    // got one looked identical, while needing opposite responses: chase the first,
+    // resend to the second.
+    //
+    // Null does not always mean failure. It is also what the first second or two look
+    // like, before the worker has picked the message up.
+    public DateTimeOffset? EmailSentAt { get; init; }
+
+    // The level this person will hold once they accept, by name so the list can say
+    // "invited as HR Admin" without a second call.
+    //
+    // It is what makes an outstanding invitation to the person who will run HR worth
+    // chasing harder than the rest.
+    public string? AccessLevelName { get; init; }
 }
 
 // What the join page renders before the person has typed anything.

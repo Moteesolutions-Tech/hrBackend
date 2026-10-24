@@ -8,6 +8,7 @@ using Motee.Domain.Auth;
 using Motee.Domain.Common;
 using Motee.Domain.Approvals;
 using Motee.Domain.Assets;
+using Motee.Domain.Attendance;
 using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
@@ -34,6 +35,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<Employee> Employees => Set<Employee>();
 
     public DbSet<EmployeeInvitation> EmployeeInvitations => Set<EmployeeInvitation>();
+
+    public DbSet<WorkSchedule> WorkSchedules => Set<WorkSchedule>();
 
     public DbSet<Asset> Assets => Set<Asset>();
 

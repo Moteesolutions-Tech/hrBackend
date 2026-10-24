@@ -29,15 +29,14 @@ public class LeaveController(
     // requiring the leave module would mean granting every member of staff the screen
     // that lists everybody else's absence.
     [HttpGet("mine")]
+    [RequiresEmployee]
     [ProducesResponseType<PagedResult<LeaveRequestDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(
         [FromQuery] LeaveRequestQuery query,
         CancellationToken cancellationToken)
     {
-        if (await currentEmployee.IdAsync(cancellationToken) is not Guid employeeId)
-        {
-            return Failure<object?>(MoteeStatusCodes.NotFound, "No employee record found.");
-        }
+        // Non-null: the filter above turned the alternative away.
+        Guid employeeId = (await currentEmployee.IdAsync(cancellationToken))!.Value;
 
         return Ok(await requests.ListAsync(
             query with { EmployeeId = employeeId }, cancellationToken));

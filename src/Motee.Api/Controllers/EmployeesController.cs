@@ -236,9 +236,19 @@ public class EmployeesController(
     public async Task<IActionResult> Invite(
         InviteRequest request,
         [FromServices] IEmployeeInvitationService invitations,
+        [FromServices] IValidator<InviteRequest> inviteValidator,
         [FromServices] IDebugMode debugMode,
         CancellationToken cancellationToken)
     {
+        ValidationResult validation = await inviteValidator.ValidateAsync(request, cancellationToken);
+
+        if (!validation.IsValid)
+        {
+            return Failure<object>(
+                MoteeStatusCodes.InvalidRequest,
+                string.Join(" ", validation.Errors.Select(error => error.ErrorMessage)));
+        }
+
         InviteResult result = await invitations.InviteAsync(request, cancellationToken);
 
         if (!result.Succeeded)
@@ -453,7 +463,8 @@ public class EmployeesController(
         EmployeeOutcome.UnknownDepartment or EmployeeOutcome.UnknownManager
             or EmployeeOutcome.ManagerCycle
             or EmployeeOutcome.UnknownDottedLineManager
-            or EmployeeOutcome.SecondaryReportingNotAllowed => MoteeStatusCodes.InvalidRequest,
+            or EmployeeOutcome.SecondaryReportingNotAllowed
+            or EmployeeOutcome.UnknownAccessLevel => MoteeStatusCodes.InvalidRequest,
         EmployeeOutcome.InvalidStatusChange => MoteeStatusCodes.Conflict,
         _ => MoteeStatusCodes.InternalServerError,
     };
@@ -477,6 +488,11 @@ public class EmployeesController(
             + "Settings before assigning a project manager.",
         EmployeeOutcome.UnknownDottedLineManager =>
             "That project manager is not an employee here.",
+
+        // Names the two reasons, because they look identical from the form: a level
+        // somebody deactivated this morning is still in a stale dropdown.
+        EmployeeOutcome.UnknownAccessLevel =>
+            "That access level does not exist, or is not active and cannot be granted.",
         _ => "Could not save the employee.",
     };
 }

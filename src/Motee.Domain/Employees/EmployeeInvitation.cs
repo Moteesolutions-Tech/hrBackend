@@ -53,6 +53,24 @@ public class EmployeeInvitation : ITenantScoped
     public DateTimeOffset? RevokedAt { get; set; }
 
     public Guid? InvitedByUserId { get; set; }
+
+    // The access level this person is being brought in to hold, granted when they
+    // accept. Null for most people, who hold nothing beyond the self-service floor
+    // until somebody decides otherwise.
+    //
+    // Recorded here because a level is assigned to an account, and the account does
+    // not exist until acceptance. Without somewhere to keep the intention, the owner
+    // has to come back days later and remember — which is how a company ends up with
+    // nobody holding HR Admin and the owner quietly doing the job themselves.
+    public Guid? AccessLevelId { get; set; }
+
+    // When the invitation email reached the mail provider. Null until it does.
+    //
+    // The row is written before the email is handed over, and delivery happens on a
+    // background worker afterwards, so the two are never simultaneous. Without this
+    // the list of outstanding invitations could not tell a person who is ignoring
+    // their link from one who never received it — and those need opposite actions.
+    public DateTimeOffset? EmailSentAt { get; set; }
 }
 
 public static class InvitationPolicy

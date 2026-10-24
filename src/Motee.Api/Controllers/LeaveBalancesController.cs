@@ -30,15 +30,14 @@ public class LeaveBalancesController(
     // requests: needing the leave module to see your own remaining days would mean
     // granting everybody the screen showing the whole company's.
     [HttpGet("mine")]
+    [RequiresEmployee]
     [ProducesResponseType<IReadOnlyList<LeaveBalanceDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(
         [FromQuery] DateOnly? asAt,
         CancellationToken cancellationToken)
     {
-        if (await currentEmployee.IdAsync(cancellationToken) is not Guid employeeId)
-        {
-            return Failure<object?>(MoteeStatusCodes.NotFound, "No employee record found.");
-        }
+        // Non-null: the filter above turned the alternative away.
+        Guid employeeId = (await currentEmployee.IdAsync(cancellationToken))!.Value;
 
         return Ok(await balances.ForEmployeeAsync(employeeId, asAt, cancellationToken));
     }

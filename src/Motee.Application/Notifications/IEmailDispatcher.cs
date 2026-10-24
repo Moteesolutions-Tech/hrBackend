@@ -9,6 +9,8 @@ namespace Motee.Application.Notifications;
 // the moment a model is renamed and leaves undeliverable jobs in the queue.
 public interface IEmailDispatcher
 {
-    void Send<TModel>(string to, TModel model)
+    // `about` names the record this email belongs to, and is written back when the
+    // send succeeds. Omitted for emails whose delivery nobody needs to see.
+    void Send<TModel>(string to, TModel model, EmailAbout? about = null)
         where TModel : notnull;
 }

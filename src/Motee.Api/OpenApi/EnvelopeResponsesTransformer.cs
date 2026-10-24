@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
+using Motee.Api.Authorization;
 using Motee.Api.Contracts;
 
 namespace Motee.Api.OpenApi;
@@ -153,6 +154,18 @@ internal sealed class EnvelopeResponsesTransformer : IOpenApiOperationTransforme
         {
             Add(operation, 401, MoteeStatusCodes.Unauthorized,
                 "No token, or one that has expired. Refresh and retry.");
+
+            // Before the generic 403, because Add never overwrites and this is the more
+            // accurate of the two: a self-service endpoint refuses the owner over what
+            // their account is, not over what it may do. Documenting the generic reason
+            // here would have the client hunting a permission that does not exist.
+            if (metadata.OfType<RequiresEmployeeAttribute>().Any())
+            {
+                Add(operation, 403, MoteeStatusCodes.NotAnEmployee,
+                    RequiresEmployeeAttribute.Message
+                    + " Returned for the company owner, permanently — treat it as a "
+                    + "signal to hide the screen rather than as an error to show.");
+            }
 
             Add(operation, 403, MoteeStatusCodes.Forbidden,
                 "Signed in, but this access level does not grant it.");

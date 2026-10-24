@@ -4,7 +4,10 @@ using Motee.Application.Notifications;
 
 namespace Motee.Infrastructure.Notifications;
 
-public sealed class SendEmailJob(IEmailSender emailSender, IAlertSink alerts)
+public sealed class SendEmailJob(
+    IEmailSender emailSender,
+    IAlertSink alerts,
+    IEmailDeliveryLog deliveries)
 {
     // Short delays on purpose. A verification code expires in minutes, so an hour-long
     // backoff would deliver something already dead; three quick attempts cover a
@@ -15,6 +18,14 @@ public sealed class SendEmailJob(IEmailSender emailSender, IAlertSink alerts)
         try
         {
             await emailSender.SendAsync(message);
+
+            // After the send, so the record only claims what actually happened. A
+            // retry that finally succeeds records it then; one that never does leaves
+            // the invitation showing as unsent, which is true.
+            if (message.About is EmailAbout about)
+            {
+                await deliveries.MarkSentAsync(about);
+            }
         }
         catch (Exception exception)
         {

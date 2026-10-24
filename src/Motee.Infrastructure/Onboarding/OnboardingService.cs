@@ -169,12 +169,24 @@ internal sealed class OnboardingService(
                 // The submission stands even when the review cannot start. Refusing it
                 // would leave the joiner unable to hand in their pack because of a
                 // configuration problem that is not theirs and that they cannot fix.
+                //
+                // Kept, rather than discarded as it used to be. The caller here is
+                // invitation acceptance, which ignores this outcome on purpose — so
+                // without writing it down, the fact that nobody can review this pack
+                // existed for the length of one method call and then did not.
+                record.ReviewUnavailableReason =
+                    review.Reason ?? "No approval chain could be started for this onboarding.";
+
                 await dbContext.SaveChangesAsync(cancellationToken);
 
                 return OnboardingResult.Failed(OnboardingOutcome.ReviewUnstartable);
             }
 
             record.ApprovalInstanceId = review.Approval!.Id;
+
+            // A chain started, so any earlier explanation is stale. Left behind it
+            // would have a reviewed pack still claiming nobody could review it.
+            record.ReviewUnavailableReason = null;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -362,6 +374,7 @@ internal sealed class OnboardingService(
             Submission = record.Submission,
             SubmittedAt = record.SubmittedAt,
             CompletedAt = record.CompletedAt,
+            ReviewUnavailableReason = record.ReviewUnavailableReason,
 
             // All three are filled after materialising. The review is a service call, the
             // avatar link has to be signed, and the overdue flag needs a comparison the

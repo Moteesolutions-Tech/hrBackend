@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
 using Motee.Application.Common;
 using Motee.Application.Employees;
+using Motee.Application.Onboarding;
 using Motee.Application.Organisation;
 using Motee.Application.Tenancy;
 using Motee.Domain.Authorization;
@@ -134,9 +135,7 @@ public class OnboardingGapsTests(PostgresFixture fixture)
         Assert.Null(await Resolve<ICurrentEmployee>(owned).IdAsync());
     }
 
-    // An address that is not the owner's must not attach to their account either. Weaker
-    // than it was — nothing links to an owner now — but it is the assertion that would
-    // catch a match on tenant alone.
+
     [SkippableFact]
     public async Task AnUnrelatedEmployeeDoesNotLinkToTheOwner()
     {
@@ -154,10 +153,7 @@ public class OnboardingGapsTests(PostgresFixture fixture)
         Assert.Null((await context.Users.SingleAsync(candidate => candidate.Id == userId)).EmployeeId);
     }
 
-    // The half of the rule that is easy to lose: excluding owners must not switch linking
-    // off for everybody. An ordinary account with no employee record still picks one up
-    // when their record is created — this is the path an HR admin invited by the owner
-    // takes, so breaking it would leave the first HR admin unable to act as an employee.
+
     [SkippableFact]
     public async Task AnOrdinaryAccountStillLinks()
     {
@@ -193,6 +189,90 @@ public class OnboardingGapsTests(PostgresFixture fixture)
         Assert.Equal(
             created.Employee!.Id,
             (await context.Users.SingleAsync(candidate => candidate.Id == userId)).EmployeeId);
+    }
+
+    // Day one, the whole way through: the owner invites the first person, that person
+    // hands in their pack, and somebody has to review it. There is nobody — the joiner
+    // has no manager, their department has no head, and the owner is no longer an
+    // employee who could stand in. What happens here is what every new customer meets.
+    //
+    // Nobody is blocked by it. The joiner finishes signing up, because invitation
+    // acceptance discards this outcome on purpose, and HR can still complete the
+    // record, because one with no chain counts as approved. The cost is that the
+    // review silently does not happen, and the result looks identical to a record HR
+    // typed in themselves — which needs no review.
+    //
+    // Asserts the current behaviour on purpose, so the gap is visible and so this turns
+    // red when somebody changes it. It is not the behaviour we want.
+    [SkippableFact]
+    public async Task TheFirstInvitedJoinersPackIsNeverReviewed()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (_, _, ServiceProvider provider) = await RegisterAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid departmentId = await DepartmentAsync(owned);
+
+        // The seeded chain, not one the test wrote: LineManager required, department
+        // head optional. Substituting a friendlier chain here would be testing the
+        // substitute.
+        EmployeeResult hired = await Resolve<IEmployeeService>(owned)
+            .CreateAsync(Employee(departmentId, "bola@acme.com", "Bola"), OnboardingMethod.Invite);
+
+        Assert.True(hired.Succeeded, hired.Outcome.ToString());
+
+        IOnboardingService onboarding = Resolve<IOnboardingService>(owned);
+
+        OnboardingResult submitted = await onboarding.SubmitAsync(hired.Employee!.Id);
+
+        Assert.Equal(OnboardingOutcome.ReviewUnstartable, submitted.Outcome);
+
+        // Submitted all the same — the record was saved before the failure was returned,
+        // which is why the second attempt is refused as a duplicate rather than retried.
+        Assert.Equal(
+            OnboardingOutcome.NotAllowed,
+            (await onboarding.SubmitAsync(hired.Employee!.Id)).Outcome);
+
+        Guid recordId = (await onboarding.EnsureAsync(hired.Employee!.Id)).Id;
+
+        OnboardingResult completed = await Resolve<IOnboardingService>(owned)
+            .CompleteAsync(recordId);
+
+        // Still completable, and still no review. Nobody is blocked by this, which is
+        // deliberate — the joiner cannot fix their company's reporting lines.
+        Assert.True(completed.Succeeded, completed.Outcome.ToString());
+        Assert.Null(completed.Record!.Review);
+
+        // But it no longer passes for a record that never needed reviewing. The reason
+        // the engine worked out is on the record, in the words it wrote, naming the
+        // thing to fix rather than the category it fell into.
+        Assert.Contains(
+            "line manager",
+            completed.Record.ReviewUnavailableReason!,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The other half: a record HR typed in themselves wants no review and must not be
+    // marked as missing one. Both come back with a null Review, so this is the only
+    // thing separating "nothing to do" from "nobody looked".
+    [SkippableFact]
+    public async Task ARecordThatNeverNeededAReviewCarriesNoReason()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (_, _, ServiceProvider provider) = await RegisterAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid departmentId = await DepartmentAsync(owned);
+
+        EmployeeResult hired = await Resolve<IEmployeeService>(owned)
+            .CreateAsync(Employee(departmentId, "bola@acme.com", "Bola"), OnboardingMethod.Manual);
+
+        OnboardingResult submitted = await Resolve<IOnboardingService>(owned)
+            .SubmitAsync(hired.Employee!.Id);
+
+        Assert.True(submitted.Succeeded, submitted.Outcome.ToString());
+        Assert.Null(submitted.Record!.Review);
+        Assert.Null(submitted.Record.ReviewUnavailableReason);
     }
 
     // One address, one employee. Untouched by the owner rule: the refusal comes from the

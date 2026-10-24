@@ -8,6 +8,7 @@ using Motee.Application.Employees;
 using Motee.Application.Tenancy;
 using Motee.Application.Files;
 using Motee.Application.Notifications;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Files;
 using Motee.Domain.Identity;
@@ -35,6 +36,15 @@ internal sealed class EmployeeInvitationService(
         InviteRequest request,
         CancellationToken cancellationToken = default)
     {
+        // Before the employee is created, so a level that cannot be granted costs
+        // nothing. Checking after would leave a half-done invitation behind on a
+        // mistake the owner could fix in one click.
+        if (request.AccessLevelId is Guid level
+            && !await AssignableAsync(level, cancellationToken))
+        {
+            return InviteResult.Failed(EmployeeOutcome.UnknownAccessLevel);
+        }
+
         // The employee record exists immediately so the person appears in the
         // pipeline as Pending, whether or not they ever open the link.
         EmployeeResult created = await employees.CreateAsync(
@@ -67,9 +77,8 @@ internal sealed class EmployeeInvitationService(
             created.Employee.Email,
             InvitationPurpose.Onboarding,
             now,
-            cancellationToken);
-
-        await dbContext.SaveChangesAsync(cancellationToken);
+            cancellationToken,
+            request.AccessLevelId);
 
         return new InviteResult
         {
@@ -109,10 +118,33 @@ internal sealed class EmployeeInvitationService(
 
         DateTimeOffset now = timeProvider.GetUtcNow();
 
-        string token = await IssueTokenAsync(
-            employee.Id, employee.Email, PurposeFor(employee), now, cancellationToken);
+        // Carried over from the link being replaced. A resend is the same invitation
+        // sent again — somebody invited to run HR who never opened their email is
+        // still being invited to run HR, and dropping that on a resend would undo the
+        // decision without anyone touching it.
+        Guid? intendedLevel = await dbContext.EmployeeInvitations
+            .Where(invitation => invitation.EmployeeId == employeeId
+                && invitation.ConsumedAt == null
+                && invitation.RevokedAt == null)
+            .OrderByDescending(invitation => invitation.CreatedAt)
+            .Select(invitation => invitation.AccessLevelId)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        // Unless it has since been deactivated, in which case the resend goes without
+        // it rather than failing: the person still needs to get in, and the level is
+        // something an administrator can grant afterwards.
+        if (intendedLevel is Guid level && !await AssignableAsync(level, cancellationToken))
+        {
+            intendedLevel = null;
+        }
+
+        string token = await IssueTokenAsync(
+            employee.Id,
+            employee.Email,
+            PurposeFor(employee),
+            now,
+            cancellationToken,
+            intendedLevel);
 
         return new IssueInviteResult
         {
@@ -171,6 +203,11 @@ internal sealed class EmployeeInvitationService(
                 SentAt = invitation.CreatedAt,
                 ExpiresAt = invitation.ExpiresAt,
                 Expired = invitation.ExpiresAt <= now,
+                EmailSentAt = invitation.EmailSentAt,
+                AccessLevelName = dbContext.AccessLevels
+                    .Where(level => level.Id == invitation.AccessLevelId)
+                    .Select(level => level.Name)
+                    .FirstOrDefault(),
             })
             .ToListAsync(cancellationToken);
     }
@@ -183,21 +220,28 @@ internal sealed class EmployeeInvitationService(
             ? InvitationPurpose.Onboarding
             : InvitationPurpose.Credentials;
 
-    // Adds the invitation and queues the email without saving, so the caller decides
-    // the transaction. Any earlier invitation is revoked first: after three resends,
-    // only the newest link should open the door.
+    // Adds the invitation, commits it, then queues the email. Any earlier invitation is
+    // revoked first: after three resends, only the newest link should open the door.
+    // Active only. A draft is unfinished and a deactivated one has been withdrawn;
+    // neither can be held, so neither is a thing to promise somebody on arrival.
+    private Task<bool> AssignableAsync(Guid accessLevelId, CancellationToken cancellationToken) =>
+        dbContext.AccessLevels.AnyAsync(
+            level => level.Id == accessLevelId && level.Status == AccessLevelStatus.Active,
+            cancellationToken);
+
     private async Task<string> IssueTokenAsync(
         Guid employeeId,
         string email,
         InvitationPurpose purpose,
         DateTimeOffset now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? accessLevelId = null)
     {
         await RevokeOutstandingAsync(employeeId, now, cancellationToken);
 
         string token = GenerateToken();
 
-        dbContext.EmployeeInvitations.Add(new EmployeeInvitation
+        EmployeeInvitation invitation = new()
         {
             Id = Guid.NewGuid(),
             EmployeeId = employeeId,
@@ -207,14 +251,33 @@ internal sealed class EmployeeInvitationService(
             CreatedAt = now,
             ExpiresAt = InvitationPolicy.ExpiresAt(now),
             InvitedByUserId = Guid.TryParse(requestContext.UserId, out Guid userId) ? userId : null,
-        });
+            AccessLevelId = accessLevelId,
+        };
 
-        emailDispatcher.Send(email, new EmployeeInviteEmail
-        {
-            JoinUrl = links.Join(token),
-            ExpiresAt = InvitationPolicy.ExpiresAt(now),
-            Purpose = purpose,
-        });
+        dbContext.EmployeeInvitations.Add(invitation);
+
+        // Committed before the email is handed over, and that order matters twice.
+        //
+        // Delivery runs on a background worker that marks this row as sent: enqueued
+        // first, it could look for the invitation before the transaction committed and
+        // find nothing. And the link in the email only works once the row exists, so
+        // sending first offers a token that would be rejected by whoever is quickest.
+        //
+        // It also decides what an unreachable queue costs. Saved first, a failed
+        // enqueue leaves a real invitation showing as unsent, which is accurate and
+        // which Resend fixes. The other way round it threw away the invitation while
+        // the employee record it belongs to had already been written.
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        emailDispatcher.Send(
+            email,
+            new EmployeeInviteEmail
+            {
+                JoinUrl = links.Join(token),
+                ExpiresAt = InvitationPolicy.ExpiresAt(now),
+                Purpose = purpose,
+            },
+            new EmailAbout { Kind = EmailAbout.Invitation, Id = invitation.Id });
 
         return token;
     }
@@ -451,10 +514,33 @@ internal sealed class EmployeeInvitationService(
                     : AcceptInviteOutcome.AccountExists);
         }
 
-        // No access level is assigned. The self-service floor already reaches their own
-        // record and their own submissions, which is everything a new joiner needs on
-        // day one — and guessing a level for them would be guessing at their job.
-        // HR grants one when they decide what it should be.
+        // The level they were invited to hold, if they were invited to hold one.
+        //
+        // Nobody is given one by default: the self-service floor already reaches their
+        // own record and their own submissions, which is everything a new joiner needs,
+        // and guessing beyond that would be guessing at their job. This is not a guess —
+        // somebody chose it when they sent the invitation.
+        //
+        // Re-checked rather than trusted. A link lives fourteen days, and a level can be
+        // deactivated or deleted inside that window; the one stored here says what was
+        // meant a fortnight ago, not what is grantable now.
+        //
+        // A level that can no longer be granted does not stop them joining. They arrive
+        // holding nothing, which an administrator can fix in one click, and the
+        // alternative is turning somebody away from their first day over a
+        // configuration change they had no part in.
+        if (invitation.AccessLevelId is Guid intended
+            && await AssignableAsync(intended, cancellationToken))
+        {
+            dbContext.UserAccessLevels.Add(new UserAccessLevel
+            {
+                Id = Guid.NewGuid(),
+                TenantId = employee.TenantId,
+                UserId = user.Id,
+                AccessLevelId = intended,
+                AssignedAt = now,
+            });
+        }
 
         // The joiner is anonymous, so nothing has resolved a tenant. Without this the
         // profile write finds no employee and the bank, identity and medical rows are

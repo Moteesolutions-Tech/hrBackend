@@ -74,6 +74,15 @@ public class Employee : ITenantScoped
     // real changes to who can do what, arriving as a side effect of a structure setting.
     public Guid? DottedLineManagerId { get; set; }
 
+    // The hours this person is contracted to. Null means they follow the company's
+    // default schedule, which is how nearly everybody is recorded — a four-day week or
+    // a night shift is the exception worth writing down, and writing the standard
+    // pattern onto eight hundred rows would make changing the office hours a migration.
+    //
+    // Resolved rather than read directly: attendance always asks for the effective
+    // schedule, which is this one or the default.
+    public Guid? WorkScheduleId { get; set; }
+
     public EmployeeStatus Status { get; set; } = EmployeeStatus.Pending;
 
     public DateOnly? StartDate { get; set; }

@@ -83,11 +83,14 @@ public static class DependencyInjection
         services.AddScoped<Approvals.ApprovalTemplateSeeder>();
         services.AddScoped<Approvals.ApprovalAttachmentLinker>();
         services.AddScoped<Leave.LeaveSeeder>();
+        services.AddScoped<Attendance.WorkScheduleSeeder>();
         services.AddScoped<Leave.LeaveYearResolver>();
         services.AddScoped<Leave.HolidayLookup>();
         services.AddScoped<Application.Leave.ILeaveBalanceService, Leave.LeaveBalanceService>();
         services.AddScoped<Application.Leave.ILeaveRequestService, Leave.LeaveRequestService>();
         services.AddScoped<Application.Leave.ILeavePolicyService, Leave.LeavePolicyService>();
+        services.AddScoped<
+            Application.Attendance.IWorkScheduleService, Attendance.WorkScheduleService>();
         services.AddScoped<Application.Leave.ILeaveYearEndService, Leave.LeaveYearEndService>();
         services.AddScoped<ICurrentEmployee, Common.CurrentEmployee>();
 
@@ -254,6 +257,7 @@ public static class DependencyInjection
     private static void AddEmailTemplates(IServiceCollection services)
     {
         services.AddScoped<IEmailDispatcher, EmailDispatcher>();
+        services.AddScoped<IEmailDeliveryLog, Notifications.EmailDeliveryLog>();
 
         services.AddScoped<IEmailTemplate<OtpCodeEmail>, OtpCodeEmailTemplate>();
         services.AddScoped<
