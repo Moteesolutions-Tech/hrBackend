@@ -138,7 +138,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseMoteeJobsDashboard();
-app.UseMoteeRecurringJobs();
 
 app.MapMoteeHealth();
 app.MapControllers();
