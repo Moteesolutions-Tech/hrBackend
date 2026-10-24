@@ -134,6 +134,18 @@ public sealed record OnboardingDto
     // theatre, so those records skip it.
     public ApprovalDto? Review { get; init; }
 
+    // Set when a review was wanted and none could start, saying which: "No line
+    // manager is recorded for this employee."
+    //
+    // Reading Review on its own cannot tell the two apart. Null there means both "this
+    // needs no review" and "nobody could be found to review this", and a pack of the
+    // second kind completes exactly like one of the first — so a company's first hires
+    // were signed off unexamined and nothing on the screen said so.
+    //
+    // Non-null means this pack went unreviewed and here is the gap to close, usually by
+    // recording a manager or appointing an HR admin.
+    public string? ReviewUnavailableReason { get; init; }
+
     public DateTimeOffset? SubmittedAt { get; init; }
 
     public DateTimeOffset? CompletedAt { get; init; }

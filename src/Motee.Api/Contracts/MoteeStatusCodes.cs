@@ -28,13 +28,22 @@ public static class MoteeStatusCodes
     public const string OtpAlreadyUsed = "1004";
     public const string EmailNotConfirmed = "1005";
 
+    // Self-service was asked of an account that is not an employee — in practice the
+    // company's owner, who runs the account rather than working there.
+    //
+    // Its own code rather than a bare 403 because the client's correct response is not
+    // to show an error: it is to not offer the screen. A 403 says "you may not", which
+    // invites a retry or a permission hunt; this says "there is nothing of yours here",
+    // which is a different thing and permanent for the account.
+    public const string NotAnEmployee = "1006";
+
     public static IReadOnlyList<string> All =>
     [
         Success, Created,
         InvalidRequest, Unauthorized, Forbidden, NotFound, Conflict, Gone, PayloadTooLarge,
         TooManyRequests, InternalServerError,
         OtpIncorrect, OtpExpired, OtpLockedOut, OtpAlreadyUsed,
-        EmailNotConfirmed,
+        EmailNotConfirmed, NotAnEmployee,
     ];
 
     public static int ToHttpStatus(string responseCode) => responseCode switch
@@ -56,6 +65,10 @@ public static class MoteeStatusCodes
         OtpAlreadyUsed => 409,
         OtpLockedOut => 429,
         EmailNotConfirmed => 403,
+
+        // Forbidden rather than 404: the endpoint is real and the request well formed.
+        // What is absent is the caller's standing to have anything there.
+        NotAnEmployee => 403,
 
         // Never fall through to 200 — an unmapped code is a bug, not a success.
         _ => 500,

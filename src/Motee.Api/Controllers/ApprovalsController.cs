@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Motee.Api.Authorization;
 using Motee.Api.Contracts;
@@ -22,6 +23,16 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // What is waiting on the person asking. No permission beyond being signed in: this
     // is their own queue, and gating it behind a module would hide from a line manager
     // the very thing they have been asked to decide.
+    //
+    // Signed in is still a requirement, and had been left off. With no fallback policy
+    // configured, dropping the permission attribute dropped authentication with it, and
+    // this answered an anonymous caller with an empty page rather than a 401. Nothing
+    // leaked — the tenant filter matches nothing without a tenant — but that is the
+    // query filter failing closed, not this endpoint deciding anything.
+    //
+    // Authorize rather than RequiresEmployee: an approver is whoever the step resolved
+    // to, which need not be an employee.
+    [Authorize]
     [HttpGet("my-queue")]
     [ProducesResponseType<PagedResult<ApprovalDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> MyQueue(
@@ -56,6 +67,11 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // the step resolved to, which the service checks — a module permission would let
     // anyone holding it approve somebody else's step, and the chain's order would then
     // describe nothing.
+    //
+    // Authenticated all the same. Without this an anonymous caller reached the service,
+    // and what turned them away was the tenant filter hiding every approval from a
+    // request with no tenant. That is one query away from an unauthenticated approval.
+    [Authorize]
     [HttpPost("{id:guid}/decide")]
     [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Decide(
@@ -64,6 +80,7 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
         CancellationToken cancellationToken) =>
         Respond(await approvals.DecideAsync(id, request.Decision, request.Note, cancellationToken));
 
+    [Authorize]
     [HttpPost("{id:guid}/resubmit")]
     [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Resubmit(Guid id, CancellationToken cancellationToken) =>

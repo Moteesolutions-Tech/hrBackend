@@ -139,6 +139,318 @@ public class EmployeeInvitationTests(PostgresFixture fixture)
         }
     }
 
+    private sealed class BrokenEmailSender : IEmailSender
+    {
+        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("The mail provider is unreachable.");
+    }
+
+    // The invitation records when its email was handed over, which is the only way the
+    // company can tell somebody ignoring their link from somebody who never got one.
+    [SkippableFact]
+    public async Task AnInvitationRecordsThatItsEmailWentOut()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        InviteResult invite = await Invites(owned).InviteAsync(Request(departmentId));
+
+        Assert.True(invite.Succeeded, invite.Outcome.ToString());
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.NotNull((await context.EmployeeInvitations.SingleAsync()).EmailSentAt);
+    }
+
+    // A dead mail provider must not cost the company the invitation. The record stands,
+    // the link works, and the only difference is that it shows as never sent — which is
+    // both true and the thing Resend is for.
+    [SkippableFact]
+    public async Task AFailedSendLeavesTheInvitationUsableAndVisiblyUnsent()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await fixture.ResetAsync();
+
+        Guid tenantId = Guid.NewGuid();
+
+        await using (MoteeDbContext seed = fixture.CreateContext())
+        {
+            seed.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Name = "Acme Corporation",
+                Slug = $"acme-{tenantId:N}",
+                CountryCode = CountryCode.Nigeria,
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        await using ServiceProvider owned = fixture.BuildProvider(services =>
+            services.AddScoped<IEmailSender>(_ => new BrokenEmailSender()));
+
+        owned.GetRequiredService<PostgresFixture.MutableTenant>().TenantId = tenantId;
+
+        Guid departmentId = (await owned.CreateScope().ServiceProvider
+            .GetRequiredService<IDepartmentService>()
+            .CreateAsync(new DepartmentRequest { Name = "Engineering", Code = "ENG" }))
+            .Department!.Id;
+
+        InviteResult invite = await Invites(owned).InviteAsync(Request(departmentId));
+
+        Assert.True(invite.Succeeded, invite.Outcome.ToString());
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+        EmployeeInvitation saved = await context.EmployeeInvitations.SingleAsync();
+
+        // Saved before the email was attempted, so the failure cannot take it with it.
+        Assert.Null(saved.EmailSentAt);
+
+        // And the person is still invited: the token in hand opens the join page.
+        Assert.Equal(
+            InvitationOutcome.Valid,
+            (await Invites(owned).PreviewAsync(invite.Token!))!.Outcome);
+    }
+
+    // Inviting somebody to run HR.
+    //
+    // The whole point of separating owner from HR Admin: the owner is not the HR admin
+    // by construction any more, so somebody has to be made one, and the only moment the
+    // owner is thinking about it is while they are inviting the person. The account does
+    // not exist yet, so the intention is carried on the invitation and spent when they
+    // accept.
+    [SkippableFact]
+    public async Task SomebodyInvitedToHoldALevelHoldsItOnceTheyAccept()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid levelId = await LevelAsync(tenantId, "HR Admin");
+
+        InviteResult invite = await Invites(owned)
+            .InviteAsync(Request(departmentId) with { AccessLevelId = levelId });
+
+        Assert.True(invite.Succeeded, invite.Outcome.ToString());
+
+        AcceptInviteResult accepted = await Invites(owned)
+            .AcceptAsync(invite.Token!, Accept());
+
+        Assert.Equal(AcceptInviteOutcome.Succeeded, accepted.Outcome);
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.Equal(
+            levelId,
+            (await context.UserAccessLevels.SingleAsync()).AccessLevelId);
+    }
+
+    // Nothing is granted to somebody nobody chose a level for, which is nearly everyone.
+    [SkippableFact]
+    public async Task SomebodyInvitedWithoutOneHoldsNothing()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        InviteResult invite = await Invites(owned).InviteAsync(Request(departmentId));
+
+        await Invites(owned).AcceptAsync(invite.Token!, Accept());
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.Empty(await context.UserAccessLevels.ToListAsync());
+    }
+
+    // Refused while the owner is looking at the form, not silently two weeks later.
+    [SkippableFact]
+    public async Task ALevelThatCannotBeGrantedIsRefusedAtInviteTime()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid draft = await LevelAsync(tenantId, "Half Built", AccessLevelStatus.Draft);
+
+        InviteResult refused = await Invites(owned)
+            .InviteAsync(Request(departmentId) with { AccessLevelId = draft });
+
+        Assert.Equal(EmployeeOutcome.UnknownAccessLevel, refused.Outcome);
+
+        // And nothing was left behind by the attempt.
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.Empty(await context.EmployeeInvitations.ToListAsync());
+        Assert.Empty(await context.Employees.ToListAsync());
+    }
+
+    // A link lives a fortnight, and a level can be withdrawn inside that window. The
+    // person still joins — turning somebody away from their first day over a
+    // configuration change they had no part in would be the worse failure.
+    [SkippableFact]
+    public async Task ALevelDeactivatedBeforeTheyAcceptLeavesThemHoldingNothing()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid levelId = await LevelAsync(tenantId, "HR Admin");
+
+        InviteResult invite = await Invites(owned)
+            .InviteAsync(Request(departmentId) with { AccessLevelId = levelId });
+
+        await using (MoteeDbContext withdraw = fixture.CreateContext(tenantId))
+        {
+            AccessLevel level = await withdraw.AccessLevels
+                .FirstAsync(candidate => candidate.Id == levelId);
+
+            level.Status = AccessLevelStatus.Inactive;
+            await withdraw.SaveChangesAsync();
+        }
+
+        AcceptInviteResult accepted = await Invites(owned)
+            .AcceptAsync(invite.Token!, Accept());
+
+        Assert.Equal(AcceptInviteOutcome.Succeeded, accepted.Outcome);
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.Empty(await context.UserAccessLevels.ToListAsync());
+    }
+
+    // A resend is the same invitation sent again. Somebody invited to run HR who never
+    // opened their email is still being invited to run HR.
+    [SkippableFact]
+    public async Task ResendingKeepsTheLevelTheyWereInvitedToHold()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid levelId = await LevelAsync(tenantId, "HR Admin");
+
+        InviteResult invite = await Invites(owned)
+            .InviteAsync(Request(departmentId) with { AccessLevelId = levelId });
+
+        IssueInviteResult resent = await Invites(owned).IssueAsync(invite.Employee!.Id);
+
+        Assert.Equal(IssueInviteOutcome.Succeeded, resent.Outcome);
+
+        await Invites(owned).AcceptAsync(resent.Token!, Accept());
+
+        await using MoteeDbContext context = fixture.CreateContext(tenantId);
+
+        Assert.Equal(
+            levelId,
+            (await context.UserAccessLevels.SingleAsync()).AccessLevelId);
+    }
+
+    // So the list can say "invited as HR Admin", and that row can be chased harder
+    // than the rest.
+    [SkippableFact]
+    public async Task ThePendingListNamesTheLevelTheyWereInvitedToHold()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        Guid levelId = await LevelAsync(tenantId, "HR Admin");
+
+        await Invites(owned).InviteAsync(Request(departmentId) with { AccessLevelId = levelId });
+
+        Assert.Equal(
+            "HR Admin",
+            Assert.Single(await Invites(owned).PendingAsync()).AccessLevelName);
+    }
+
+    private async Task<Guid> LevelAsync(
+        Guid tenantId,
+        string name,
+        AccessLevelStatus status = AccessLevelStatus.Active)
+    {
+        await using MoteeDbContext seed = fixture.CreateContext(tenantId);
+
+        Guid id = Guid.NewGuid();
+
+        seed.AccessLevels.Add(new AccessLevel
+        {
+            Id = id,
+            TenantId = tenantId,
+            Name = name,
+            Kind = AccessLevelKind.Custom,
+            Status = status,
+            Scope = DataScope.Everything,
+            Permissions = [],
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await seed.SaveChangesAsync();
+
+        return id;
+    }
+
+    // The invite endpoint accepted anything the type system allowed, because the
+    // validator the employee routes use was never wired to it. The same record was
+    // refused through POST /employees and written through POST /employees/invite.
+    [Theory]
+    [InlineData("", "Okafor", "ada@acme.com", "Engineer")]
+    [InlineData("Ada", "", "ada@acme.com", "Engineer")]
+    [InlineData("Ada", "Okafor", "notanemail", "Engineer")]
+    [InlineData("Ada", "Okafor", "ada@acme.com", "")]
+    public void TheInviteFormIsValidated(
+        string firstName,
+        string lastName,
+        string email,
+        string jobTitle)
+    {
+        Assert.False(new InviteRequestValidator().Validate(new InviteRequest
+        {
+            FirstName = firstName,
+            LastName = lastName,
+            Email = email,
+            JobTitle = jobTitle,
+            DepartmentId = Guid.NewGuid(),
+            EmploymentType = EmploymentType.FullTime,
+        }).IsValid);
+    }
+
+    // An invitation exists to produce a login, and logins stop at 256 characters while
+    // employee records allow 320. Accepting the wider bound here invites somebody to
+    // something they cannot finish — the employee saves, the link works, and the
+    // insert fails when they try to join.
+    [Fact]
+    public void AnAddressTooLongForAnAccountIsRefusedBeforeItIsPromised()
+    {
+        string local = new('a', 250);
+
+        Assert.False(new InviteRequestValidator().Validate(new InviteRequest
+        {
+            FirstName = "Ada",
+            LastName = "Okafor",
+            Email = $"{local}@acme.com",
+            JobTitle = "Engineer",
+            DepartmentId = Guid.NewGuid(),
+            EmploymentType = EmploymentType.FullTime,
+        }).IsValid);
+    }
+
+    // Surfaced where somebody would look for it.
+    [SkippableFact]
+    public async Task ThePendingListSaysWhetherTheEmailWentOut()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        (_, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+        await using ServiceProvider owned = provider;
+
+        await Invites(owned).InviteAsync(Request(departmentId));
+
+        PendingInvitationDto pending = Assert.Single(await Invites(owned).PendingAsync());
+
+        Assert.NotNull(pending.EmailSentAt);
+    }
+
     // ---- self-onboarding ----
 
     // Everything the admin set at invite time comes back so the wizard can show it

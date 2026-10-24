@@ -20,11 +20,13 @@ public class ApprovalDelegationsController(IApprovalDelegationService delegation
     // is self-service, and requiring the workflows module would mean granting every
     // manager the screen that configures the company's chains.
     [HttpGet("mine")]
+    [RequiresEmployee]
     [ProducesResponseType<IReadOnlyList<ApprovalDelegationDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(CancellationToken cancellationToken) =>
         Ok(await delegations.MineAsync(cancellationToken));
 
     [HttpPost]
+    [RequiresEmployee]
     [ProducesResponseType<ApprovalDelegationDto>(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create(
         ApprovalDelegationRequest request,
@@ -38,6 +40,7 @@ public class ApprovalDelegationsController(IApprovalDelegationService delegation
     }
 
     [HttpDelete("{id:guid}")]
+    [RequiresEmployee]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> Cancel(Guid id, CancellationToken cancellationToken)
     {

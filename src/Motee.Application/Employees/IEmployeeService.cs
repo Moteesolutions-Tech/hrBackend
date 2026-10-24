@@ -88,6 +88,14 @@ public enum EmployeeOutcome
 
     // The dotted-line manager is not an employee here, or is the person themselves.
     UnknownDottedLineManager,
+
+    // The access level the invitation would grant does not exist here, or is a draft
+    // or deactivated one that cannot be held by anybody.
+    //
+    // Refused rather than dropped. An owner inviting the person who will run HR has
+    // done the one thing that stops them being the only administrator, and letting
+    // that fall on the floor would leave them believing it was handled.
+    UnknownAccessLevel,
 }
 
 public sealed record EmployeeQuery : PagedQuery

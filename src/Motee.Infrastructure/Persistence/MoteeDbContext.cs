@@ -8,6 +8,7 @@ using Motee.Domain.Auth;
 using Motee.Domain.Common;
 using Motee.Domain.Approvals;
 using Motee.Domain.Assets;
+using Motee.Domain.Attendance;
 using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
@@ -17,6 +18,7 @@ using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
 using Motee.Domain.Onboarding;
 using Motee.Domain.Organisation;
+using Motee.Domain.Performance;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
 
@@ -34,6 +36,22 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<Employee> Employees => Set<Employee>();
 
     public DbSet<EmployeeInvitation> EmployeeInvitations => Set<EmployeeInvitation>();
+
+    public DbSet<WorkSchedule> WorkSchedules => Set<WorkSchedule>();
+
+    public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
+
+    public DbSet<Timesheet> Timesheets => Set<Timesheet>();
+
+    public DbSet<AttendanceCorrection> AttendanceCorrections => Set<AttendanceCorrection>();
+
+    public DbSet<PerformanceGoal> PerformanceGoals => Set<PerformanceGoal>();
+
+    public DbSet<PerformanceReview> PerformanceReviews => Set<PerformanceReview>();
+
+    public DbSet<PerformanceFeedback> PerformanceFeedback => Set<PerformanceFeedback>();
+
+    public DbSet<FeedbackRequest> FeedbackRequests => Set<FeedbackRequest>();
 
     public DbSet<Asset> Assets => Set<Asset>();
 

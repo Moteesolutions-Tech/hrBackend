@@ -26,6 +26,19 @@ public class OnboardingRecord : ITenantScoped
     // copy of that, because two places to look is how they end up disagreeing.
     public Guid? ApprovalInstanceId { get; set; }
 
+    // Why no chain is attached, when the reason is that none could start.
+    //
+    // Null covers two opposite situations on its own: a record HR typed in themselves,
+    // which needs no review, and a joiner's pack that nobody could be found to review.
+    // Both showed as "no review" and were completable, so a company's first hires were
+    // signed off with nobody having looked — silently, because the engine's own
+    // explanation was produced and then discarded.
+    //
+    // Holds that explanation: "No line manager is recorded for this employee", not
+    // "unstartable". Cleared whenever a chain does start, so it never outlives the
+    // problem it describes.
+    public string? ReviewUnavailableReason { get; set; }
+
     // Accepting the privacy notice, which gates the whole form. Null until they do.
     //
     // Owned here rather than on the employee: consent was given to be onboarded, at a

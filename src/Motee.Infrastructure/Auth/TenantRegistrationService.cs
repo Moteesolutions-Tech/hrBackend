@@ -23,6 +23,7 @@ internal sealed class TenantRegistrationService(
     AccessLevelSeeder accessLevels,
     Approvals.ApprovalTemplateSeeder approvalTemplates,
     Leave.LeaveSeeder leave,
+    Attendance.WorkScheduleSeeder workSchedules,
     IEmailDispatcher email,
     AppLinks links,
     IMemoryCache noticeCache,
@@ -103,6 +104,13 @@ internal sealed class TenantRegistrationService(
                 CountryCode = countryCode,
                 Plan = "starter",
                 Status = "trial",
+
+                // Set from the country at birth. Attendance decides which calendar day
+                // a punch belongs to with it, and an empty zone has no safe fallback.
+                Settings = new TenantSettings
+                {
+                    TimeZoneId = TenantClock.DefaultFor(countryCode),
+                },
                 CreatedAt = DateTimeOffset.UtcNow,
                 TrialEndsAt = DateTimeOffset.UtcNow.AddDays(30),
             };
@@ -154,6 +162,12 @@ internal sealed class TenantRegistrationService(
             // country is closed differ, and a shared default would be wrong for one of
             // the two on the day it was written.
             leave.Seed(tenant.Id, countryCode);
+
+            // The working week everybody is judged against until the company says
+            // otherwise. Country dependent for the same reason leave is: the hours a
+            // standard day runs differ, and one shared default would be wrong for one
+            // of the two from the day it was written.
+            workSchedules.Seed(tenant.Id, countryCode);
 
             // The owner, and deliberately nothing else.
             //

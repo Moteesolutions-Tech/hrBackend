@@ -39,7 +39,11 @@ public class OnboardingController(IOnboardingService onboarding) : ApiController
     // The joiner's own record. No permission attribute: this is theirs, and requiring the
     // onboarding module would mean granting every new hire the screen that lists everyone
     // else's onboarding too.
+    // The filter separates two answers that used to arrive as the same 404: an owner,
+    // who will never have one of these, and an employee whose record is genuinely
+    // missing — which is a fault worth chasing.
     [HttpGet("mine")]
+    [RequiresEmployee]
     [ProducesResponseType<OnboardingDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(CancellationToken cancellationToken)
     {

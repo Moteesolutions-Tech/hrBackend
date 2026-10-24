@@ -7,7 +7,7 @@ internal sealed class EmailDispatcher(
     IServiceProvider services,
     IEmailQueue queue) : IEmailDispatcher
 {
-    public void Send<TModel>(string to, TModel model)
+    public void Send<TModel>(string to, TModel model, EmailAbout? about = null)
         where TModel : notnull
     {
         // Required, not optional: a model with no template is a programming error, and
@@ -28,6 +28,7 @@ internal sealed class EmailDispatcher(
             Subject = content.Subject,
             TextBody = content.TextBody,
             HtmlBody = EmailLayout.Wrap(content.Subject, content.HtmlBody),
+            About = about,
         });
     }
 }
