@@ -150,12 +150,18 @@ internal sealed class TenantRegistrationService(
             // The tenant's own access levels, held by nobody yet. Seeded inside the same
             // transaction as the tenant: a company that exists with no levels cannot
             // create the level it would need to create levels.
-            accessLevels.Seed(tenant.Id);
+            IReadOnlyList<AccessLevel> levels = accessLevels.Seed(tenant.Id);
 
-            // The approval chain the onboarding module starts. Seeded here so a company
-            // that invites somebody on their first day is not stopped by there being no
-            // template configured.
-            approvalTemplates.Seed(tenant.Id);
+            // The approval chains the modules start. Seeded here so a company that
+            // invites somebody or files a claim on their first day is not stopped by
+            // there being no template configured.
+            //
+            // The expense chain's second step asks whoever holds Payroll & Finance, so
+            // that level's id is handed over — it was created a line ago and is not
+            // queryable until this transaction commits.
+            approvalTemplates.Seed(
+                tenant.Id,
+                levels.FirstOrDefault(level => level.TemplateSlug == Roles.ToSlug(Role.Finance))?.Id);
 
             // Leave types, their policies, and three years of public holidays. Country
             // dependent, unlike the seeders above: statutory entitlement and the days a

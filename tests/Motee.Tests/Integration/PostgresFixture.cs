@@ -232,6 +232,11 @@ public sealed class PostgresFixture : IAsyncLifetime
             // tenants on purpose, so nothing cascades to it and every test would inherit
             // the previous one's history.
             "TRUNCATE approval_delegations, approval_attachments, approval_events, approval_step_instances, approval_instances, approval_template_steps, approval_templates, offboarding_clearance_items, offboarding_records, joiner_documents, guarantors, starter_tax_records, onboarding_records, "
+            + "interviews, candidate_offers, candidate_scorecards, candidates, job_requisitions, "
+            + "announcement_views, announcement_acknowledgements, announcements, "
+            + "notifications, expense_claims, contract_notes, contract_signatures, contracts, "
+            + "document_acknowledgements, document_shares, document_versions, "
+            + "hr_documents, document_folders, "
             + "performance_feedback, feedback_requests, performance_reviews, performance_goals, "
             + "attendance_corrections, timesheets, attendance_records, work_schedules, "
             + "leave_requests, leave_adjustments, leave_carry_overs, leave_blackouts, "

@@ -8,6 +8,12 @@ public enum FilePurpose
     EmployeeAvatar,
     EmployeeDocument,
 
+    // The company's own filing — a handbook, a policy, a form everybody fills in.
+    // Distinct from EmployeeDocument, which belongs to one person: this is the
+    // staff handbook, not Bola's contract, and the two are read by different
+    // people under different rules.
+    CompanyDocument,
+
     // Evidence attached to an approval: a fit note, a signed contract, a receipt. Owned
     // by the approval rather than by a person — the same file can be the reason a
     // request was granted, and it belongs with that decision.
@@ -61,6 +67,26 @@ public static class FilePolicy
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "application/vnd.ms-excel",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                .. Images,
+            ],
+        },
+
+        // Larger than a personal document, because this is where a handbook or a
+        // benefits pack lands — the documents a company writes once and everybody
+        // reads, which run to hundreds of pages. Presentations included for the
+        // same reason: an induction deck is a company document.
+        [FilePurpose.CompanyDocument] = new()
+        {
+            MaxBytes = 50 * Mb,
+            ContentTypes =
+            [
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-powerpoint",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 .. Images,
             ],
         },

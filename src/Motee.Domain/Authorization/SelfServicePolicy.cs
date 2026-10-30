@@ -18,6 +18,12 @@ public static class SelfServicePolicy
             ["organization.employees"] = [PermissionAction.View, PermissionAction.Edit],
             ["time-payroll.leave"] = [PermissionAction.View, PermissionAction.Create],
             ["time-payroll.attendance"] = [PermissionAction.View],
+
+            // Filing a claim is self-service, like booking leave. Create but not
+            // Edit: editing here would mean somebody's own claims list, and the
+            // edit that matters — their own draft — goes through the claim's own
+            // route, which checks it is theirs.
+            ["time-payroll.expenses"] = [PermissionAction.View, PermissionAction.Create],
             ["talent.performance"] = [PermissionAction.View],
             ["talent.training"] = [PermissionAction.View],
             ["operations.documents"] = [PermissionAction.View],

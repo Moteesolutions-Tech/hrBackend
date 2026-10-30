@@ -59,6 +59,14 @@ internal sealed class RecurringJobRegistrar(
                     // leave against it on the first morning.
                     "15 0 * * *");
 
+                // An hour later, and after carry-over, so a contract and the
+                // leave year never land in somebody's panel at the same minute.
+                // Early enough to be waiting when the first person signs in.
+                recurringJobs.AddOrUpdate<ExpirySweepJob>(
+                    ExpirySweepJob.RecurringId,
+                    job => job.RunAsync(CancellationToken.None),
+                    "0 6 * * *");
+
                 logger.LogInformation(
                     "Recurring jobs registered on attempt {Attempt}.", attempt);
 

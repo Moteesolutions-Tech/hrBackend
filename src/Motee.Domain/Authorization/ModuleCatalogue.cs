@@ -33,6 +33,7 @@ public static class ModuleCatalogue
         "talent.training",
         "time-payroll.attendance",
         "time-payroll.leave",
+        "time-payroll.expenses",
         "operations.assets",
         "operations.documents",
         "operations.contracts",
@@ -78,6 +79,12 @@ public static class ModuleCatalogue
             ["talent.training"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["time-payroll.attendance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["time-payroll.leave"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
+
+            // Finance holds this one, unlike leave: the last step of an expense
+            // chain is the pay-out, and whoever pays has to be able to see what
+            // they are paying. Line managers validate their own team's claims
+            // through the chain rather than through the module.
+            ["time-payroll.expenses"] = [Role.SuperAdmin, Role.HrAdmin, Role.Finance, Role.LineManager, Role.Auditor, Role.ReadOnly],
             ["operations.assets"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
             ["operations.documents"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["operations.contracts"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],

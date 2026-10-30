@@ -77,6 +77,27 @@ public interface IAttendanceService
     Task<AttendanceResult> LogAsync(
         LogAttendanceRequest request,
         CancellationToken cancellationToken = default);
+
+    // ── reads for aggregates ────────────────────────────────────────────────
+    //
+    // Both live here rather than in whatever is counting, because status is
+    // derived. A caller that queried the records itself would have to decide
+    // again what counts as late, and two definitions of late is one too many.
+
+    // Today for everybody in post, including those with nothing recorded. The
+    // gaps are the point: a day with no punch is what "absent" and "not clocked
+    // in" are made of, and they do not exist as rows.
+    Task<IReadOnlyList<AttendanceDayDto>> CompanyDayAsync(
+        DateOnly? date = null,
+        CancellationToken cancellationToken = default);
+
+    // Recorded days across a range, company-wide. No gap filling, so the cost
+    // is proportional to what actually happened rather than to people times
+    // days — a trend line is drawn from the days that exist.
+    Task<IReadOnlyList<AttendanceDayDto>> CompanyBetweenAsync(
+        DateOnly from,
+        DateOnly to,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record BreakIntervalDto
