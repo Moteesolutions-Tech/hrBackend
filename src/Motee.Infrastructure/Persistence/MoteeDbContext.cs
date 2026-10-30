@@ -12,6 +12,7 @@ using Motee.Domain.Assets;
 using Motee.Domain.Attendance;
 using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
+using Motee.Domain.Calendar;
 using Motee.Domain.Contracts;
 using Motee.Domain.Documents;
 using Motee.Domain.Employees;
@@ -71,6 +72,10 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
         Set<AnnouncementAcknowledgement>();
 
     public DbSet<AnnouncementView> AnnouncementViews => Set<AnnouncementView>();
+
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+
+    public DbSet<CalendarEventAttendee> CalendarEventAttendees => Set<CalendarEventAttendee>();
 
     public DbSet<Contract> Contracts => Set<Contract>();
 

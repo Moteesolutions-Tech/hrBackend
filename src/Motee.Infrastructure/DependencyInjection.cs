@@ -123,6 +123,8 @@ public static class DependencyInjection
         services.AddScoped<
             Application.Dashboard.IDashboardService, Dashboard.DashboardService>();
         services.AddScoped<
+            Application.Calendar.ICalendarService, Calendar.CalendarService>();
+        services.AddScoped<
             Application.Recruitment.IRequisitionService, Recruitment.RequisitionService>();
         services.AddScoped<
             Application.Recruitment.ICandidateService, Recruitment.CandidateService>();

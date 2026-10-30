@@ -13,7 +13,7 @@ public class DefaultAccessLevelsTests
     {
         // A literal count, so adding a module to the catalogue makes somebody look
         // here rather than silently shipping one no role can reach.
-        Assert.Equal(41, ModuleCatalogue.All.Count);
+        Assert.Equal(42, ModuleCatalogue.All.Count);
 
         // The check that actually matters: a module with no entry here is one the
         // permission handler denies to everybody except the owner, which presents

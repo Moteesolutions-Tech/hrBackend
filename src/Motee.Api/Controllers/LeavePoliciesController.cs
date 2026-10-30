@@ -14,10 +14,7 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
 {
     private const string Module = "time-payroll.leave";
 
-    // Read by the request form as well as the policies screen — somebody booking leave
-    // Read by the request form as well as the policies screen — somebody booking leave
-    // has to pick a type — so this sits behind View rather than the Edit that changing
-    // one needs.
+
     [HttpGet("types")]
     [ProducesResponseType<IReadOnlyList<LeaveTypeDto>>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]
