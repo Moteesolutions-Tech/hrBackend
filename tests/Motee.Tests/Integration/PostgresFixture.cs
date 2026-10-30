@@ -234,6 +234,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             "TRUNCATE approval_delegations, approval_attachments, approval_events, approval_step_instances, approval_instances, approval_template_steps, approval_templates, offboarding_clearance_items, offboarding_records, joiner_documents, guarantors, starter_tax_records, onboarding_records, "
             + "interviews, candidate_offers, candidate_scorecards, candidates, job_requisitions, "
             + "announcement_views, announcement_acknowledgements, announcements, "
+            + "calendar_event_attendees, calendar_events, "
             + "notifications, expense_claims, contract_notes, contract_signatures, contracts, "
             + "document_acknowledgements, document_shares, document_versions, "
             + "hr_documents, document_folders, "

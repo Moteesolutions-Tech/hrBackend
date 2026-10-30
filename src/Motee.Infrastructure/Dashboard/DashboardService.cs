@@ -3,6 +3,7 @@ using Motee.Application.Attendance;
 using Motee.Application.Dashboard;
 using Motee.Application.Tenancy;
 using Motee.Domain.Attendance;
+using Motee.Domain.Common;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
@@ -191,7 +192,7 @@ internal sealed class DashboardService(
                 continue;
             }
 
-            DateOnly next = NextOccurrence(born, today);
+            DateOnly next = AnnualDates.Next(born, today);
             int days = next.DayNumber - today.DayNumber;
 
             if (days <= BirthdayWindowDays)
@@ -208,23 +209,6 @@ internal sealed class DashboardService(
 
         return [.. upcoming.OrderBy(birthday => birthday.DaysUntil)];
     }
-
-    // The next time this day of the year comes round, today included.
-    //
-    // 29 February lands on 1 March in a common year rather than being skipped:
-    // somebody born on a leap day still has a birthday every year, and dropping
-    // them from the list three years in four is the wrong answer.
-    private static DateOnly NextOccurrence(DateOnly born, DateOnly today)
-    {
-        DateOnly thisYear = OnYear(born, today.Year);
-
-        return thisYear >= today ? thisYear : OnYear(born, today.Year + 1);
-    }
-
-    private static DateOnly OnYear(DateOnly born, int year) =>
-        born is { Month: 2, Day: 29 } && !DateTime.IsLeapYear(year)
-            ? new DateOnly(year, 3, 1)
-            : new DateOnly(year, born.Month, born.Day);
 
     // Counts by category, biggest first, with empty categories left out.
     //

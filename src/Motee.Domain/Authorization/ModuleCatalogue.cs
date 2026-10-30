@@ -40,6 +40,7 @@ public static class ModuleCatalogue
         "operations.reports",
         "operations.workforce",
         "workspace.announcements",
+        "workspace.calendar",
         "workspace.kudos",
         "workspace.suggestions",
         "workspace.surveys",
@@ -91,6 +92,13 @@ public static class ModuleCatalogue
             ["operations.reports"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["operations.workforce"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["workspace.announcements"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+
+            // Narrower than it first looks. Reading the calendar and putting
+            // things on your own and your reports' needs nothing — that is
+            // self-service and line management. This grants the two wider
+            // powers: writing on the company calendar, which everybody sees,
+            // and writing on the calendar of somebody who is not yours.
+            ["workspace.calendar"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["workspace.kudos"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
             ["workspace.suggestions"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["workspace.surveys"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
