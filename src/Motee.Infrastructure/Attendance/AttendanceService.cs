@@ -239,6 +239,63 @@ internal sealed class AttendanceService(
         };
     }
 
+    public async Task<IReadOnlyList<AttendanceDayDto>> CompanyDayAsync(
+        DateOnly? date = null,
+        CancellationToken cancellationToken = default)
+    {
+        DateOnly day = date ?? await TodayAsync(cancellationToken);
+
+        List<Guid> inPost = await dbContext.Employees
+            .AsNoTracking()
+            .Where(employee => employee.Status == EmployeeStatus.Active
+                || employee.Status == EmployeeStatus.Probation
+                || employee.Status == EmployeeStatus.OnLeave)
+            .Select(employee => employee.Id)
+            .ToListAsync(cancellationToken);
+
+        Dictionary<Guid, AttendanceRecord> byEmployee = await dbContext.AttendanceRecords
+            .AsNoTracking()
+            .Where(record => record.Date == day)
+            .ToDictionaryAsync(record => record.EmployeeId, cancellationToken);
+
+        // The people with nothing recorded are synthesised the same way a single
+        // employee's empty day is, so they get a real status rather than being
+        // left out of the count they are the whole point of.
+        List<AttendanceRecord> every =
+        [
+            .. inPost.Select(employeeId =>
+                byEmployee.TryGetValue(employeeId, out AttendanceRecord? record)
+                    ? record
+                    : new AttendanceRecord
+                    {
+                        Id = Guid.Empty,
+                        EmployeeId = employeeId,
+                        Date = day,
+                        Source = PunchSource.Web,
+                    }),
+        ];
+
+        return await DescribeAsync(every, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AttendanceDayDto>> CompanyBetweenAsync(
+        DateOnly from,
+        DateOnly to,
+        CancellationToken cancellationToken = default)
+    {
+        if (to < from)
+        {
+            return [];
+        }
+
+        List<AttendanceRecord> stored = await dbContext.AttendanceRecords
+            .AsNoTracking()
+            .Where(record => record.Date >= from && record.Date <= to)
+            .ToListAsync(cancellationToken);
+
+        return await DescribeAsync(stored, cancellationToken);
+    }
+
     public async Task<AttendanceResult> LogAsync(
         LogAttendanceRequest request,
         CancellationToken cancellationToken = default)

@@ -11,8 +11,16 @@ public class DefaultAccessLevelsTests
     [Fact]
     public void CoversEveryModuleInTheCatalogue()
     {
-        Assert.Equal(40, ModuleCatalogue.All.Count);
+        // A literal count, so adding a module to the catalogue makes somebody look
+        // here rather than silently shipping one no role can reach.
+        Assert.Equal(41, ModuleCatalogue.All.Count);
+
+        // The check that actually matters: a module with no entry here is one the
+        // permission handler denies to everybody except the owner, which presents
+        // as "the screen is broken for all our staff" rather than as a missing line.
         Assert.Equal(ModuleCatalogue.All.Count, ModuleCatalogue.AccessByModule.Count);
+        Assert.DoesNotContain(
+            ModuleCatalogue.All, module => !ModuleCatalogue.AccessByModule.ContainsKey(module));
     }
 
     [Fact]

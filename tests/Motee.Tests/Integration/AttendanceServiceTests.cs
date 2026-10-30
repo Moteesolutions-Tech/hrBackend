@@ -520,13 +520,18 @@ public class AttendanceServiceTests(PostgresFixture fixture)
         ClockOutAt = new DateTimeOffset(date.ToDateTime(to), TimeSpan.FromHours(1)),
     };
 
+    // The Monday of the week before this one, so every day of it is behind us.
+    //
+    // It used to return this week's Monday whenever that was already past, which is
+    // true from Tuesday onwards — and then the rest of the week had not happened, so
+    // days that should read Absent read NotClockedIn instead. The tests passed when
+    // run on a Saturday and failed on a Tuesday, which is the worst kind of failure:
+    // nothing changed but the day somebody ran them.
     private static DateOnly LastMonday()
     {
         DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
-        DateOnly monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
 
-        // Strictly in the past, so "the day is over" holds and a status has settled.
-        return monday >= today ? monday.AddDays(-7) : monday;
+        return today.AddDays(-(((int)today.DayOfWeek + 6) % 7)).AddDays(-7);
     }
 
     private async Task<List<AttendanceRecord>> OneDayAsync()

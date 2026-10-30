@@ -74,6 +74,11 @@ public static class DefaultAccessLevels
         "talent.offboarding",
         "time-payroll.attendance",
         "time-payroll.leave",
+
+        // A line manager sees their own team's claims and no further — the same
+        // reach they have over leave. Finance sees all of them, which is what the
+        // organisation-wide default gives everybody not listed here.
+        "time-payroll.expenses",
         "operations.documents",
         "operations.contracts",
         "submissions.queue",

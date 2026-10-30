@@ -73,9 +73,12 @@ public class ApprovalTemplateSeedTests(PostgresFixture fixture)
         Assert.False(template.Steps[1].Required);
     }
 
-    // A screen full of templates for expense claims and job requisitions — neither of
-    // which the product does — teaches people the screen lies. A category gets a default
-    // when the module that starts it exists.
+    // A screen full of templates for job requisitions and contracts — neither of which
+    // the product does — teaches people the screen lies. A category gets a default when
+    // the module that starts it exists, and gains one the day that module ships.
+    //
+    // Expenses earned its place here when the claims module landed. The eight document
+    // types still absent have not, and this is what keeps them out.
     [SkippableFact]
     public async Task NothingIsSeededForModulesThatDoNotExist()
     {
@@ -85,7 +88,11 @@ public class ApprovalTemplateSeedTests(PostgresFixture fixture)
 
         IReadOnlyList<ApprovalTemplateDto> all = await Templates(owned).ListAsync();
 
-        Assert.Equal([ApprovalDocumentTypes.Onboarding], all.Select(t => t.DocumentType).Distinct());
+        Assert.Equal(
+            [ApprovalDocumentTypes.ExpenseClaim, ApprovalDocumentTypes.Onboarding],
+            all.Select(template => template.DocumentType)
+                .Distinct()
+                .Order(StringComparer.Ordinal));
     }
 
     // Seeded as a starting point companies own, like the access levels beside it — not as
@@ -136,10 +143,12 @@ public class ApprovalTemplateSeedTests(PostgresFixture fixture)
 
         await using MoteeDbContext unfiltered = fixture.CreateContext();
 
-        ApprovalTemplate template = Assert.Single(
-            await unfiltered.ApprovalTemplates.IgnoreQueryFilters().ToListAsync());
+        List<ApprovalTemplate> templates =
+            await unfiltered.ApprovalTemplates.IgnoreQueryFilters().ToListAsync();
 
-        Assert.Equal(tenantId, template.TenantId);
+        // One per module that starts a chain — onboarding and expense claims.
+        Assert.Equal(2, templates.Count);
+        Assert.All(templates, template => Assert.Equal(tenantId, template.TenantId));
 
         Assert.All(
             await unfiltered.ApprovalTemplateSteps.IgnoreQueryFilters().ToListAsync(),

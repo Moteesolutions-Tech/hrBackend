@@ -32,6 +32,7 @@ internal static class HangfireSetup
 
         services.AddScoped<SendEmailJob>();
         services.AddScoped<LeaveYearEndJob>();
+        services.AddScoped<ExpirySweepJob>();
 
         // Registers the cron entries once the application is already serving. See
         // RecurringJobRegistrar for why this is not done during startup.

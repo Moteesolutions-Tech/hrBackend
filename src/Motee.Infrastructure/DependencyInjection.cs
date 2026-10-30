@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -107,6 +108,26 @@ public static class DependencyInjection
         services.AddScoped<
             Application.Performance.IPerformanceFeedbackService,
             Performance.PerformanceFeedbackService>();
+        services.AddScoped<
+            Application.Expenses.IExpenseClaimService, Expenses.ExpenseClaimService>();
+        services.AddScoped<
+            Application.Documents.IDocumentService, Documents.DocumentService>();
+        services.AddScoped<
+            Application.Contracts.IContractService, Contracts.ContractService>();
+        services.AddScoped<
+            Application.Notifications.INotificationService,
+            Notifications.NotificationService>();
+        services.AddScoped<
+            Application.Announcements.IAnnouncementService,
+            Announcements.AnnouncementService>();
+        services.AddScoped<
+            Application.Dashboard.IDashboardService, Dashboard.DashboardService>();
+        services.AddScoped<
+            Application.Recruitment.IRequisitionService, Recruitment.RequisitionService>();
+        services.AddScoped<
+            Application.Recruitment.ICandidateService, Recruitment.CandidateService>();
+        services.AddScoped<
+            Application.Recruitment.IInterviewService, Recruitment.InterviewService>();
         services.AddScoped<Application.Leave.ILeaveYearEndService, Leave.LeaveYearEndService>();
         services.AddScoped<ICurrentEmployee, Common.CurrentEmployee>();
 
@@ -206,7 +227,25 @@ public static class DependencyInjection
         // Singleton so the throttle's memory survives between requests — a per-request
         // throttle would never suppress anything.
         services.AddSingleton<Alerts.AlertThrottle>();
-        services.AddSingleton<Application.Alerts.IAlertSink, Alerts.SlackAlertSink>();
+
+        // The Slack sink is no longer what callers get. It sits behind a queue, so
+        // raising an alert does not make a request wait on an HTTP POST — see
+        // QueuedAlertSink for why this queue is in memory rather than Hangfire.
+        services.AddSingleton<Alerts.SlackAlertSink>();
+
+        // Bounded, and dropping the oldest when full. A queue that grows without
+        // limit turns a burst of failures into a memory problem on top of whatever
+        // was already wrong, and the newest alert is the one worth keeping.
+        services.AddSingleton(
+            Channel.CreateBounded<Application.Alerts.Alert>(
+                new BoundedChannelOptions(200)
+                {
+                    FullMode = BoundedChannelFullMode.DropOldest,
+                    SingleReader = true,
+                }));
+
+        services.AddSingleton<Application.Alerts.IAlertSink, Alerts.QueuedAlertSink>();
+        services.AddHostedService<Alerts.AlertDispatcher>();
     }
 
     private static void AddFileStorage(IServiceCollection services, IConfiguration configuration)

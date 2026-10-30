@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Motee.Application.Tenancy;
+using Motee.Domain.Announcements;
 using Motee.Domain.Auth;
 using Motee.Domain.Common;
 using Motee.Domain.Approvals;
@@ -11,14 +12,19 @@ using Motee.Domain.Assets;
 using Motee.Domain.Attendance;
 using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
+using Motee.Domain.Contracts;
+using Motee.Domain.Documents;
 using Motee.Domain.Employees;
+using Motee.Domain.Expenses;
 using Motee.Domain.Exports;
 using Motee.Domain.Files;
 using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
 using Motee.Domain.Onboarding;
+using Motee.Domain.Notifications;
 using Motee.Domain.Organisation;
 using Motee.Domain.Performance;
+using Motee.Domain.Recruitment;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
 
@@ -44,6 +50,44 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<Timesheet> Timesheets => Set<Timesheet>();
 
     public DbSet<AttendanceCorrection> AttendanceCorrections => Set<AttendanceCorrection>();
+
+    public DbSet<ExpenseClaim> ExpenseClaims => Set<ExpenseClaim>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<JobRequisition> JobRequisitions => Set<JobRequisition>();
+
+    public DbSet<Candidate> Candidates => Set<Candidate>();
+
+    public DbSet<Scorecard> Scorecards => Set<Scorecard>();
+
+    public DbSet<CandidateOffer> CandidateOffers => Set<CandidateOffer>();
+
+    public DbSet<Interview> Interviews => Set<Interview>();
+
+    public DbSet<Announcement> Announcements => Set<Announcement>();
+
+    public DbSet<AnnouncementAcknowledgement> AnnouncementAcknowledgements =>
+        Set<AnnouncementAcknowledgement>();
+
+    public DbSet<AnnouncementView> AnnouncementViews => Set<AnnouncementView>();
+
+    public DbSet<Contract> Contracts => Set<Contract>();
+
+    public DbSet<ContractSignature> ContractSignatures => Set<ContractSignature>();
+
+    public DbSet<ContractNote> ContractNotes => Set<ContractNote>();
+
+    public DbSet<DocumentFolder> DocumentFolders => Set<DocumentFolder>();
+
+    public DbSet<HrDocument> HrDocuments => Set<HrDocument>();
+
+    public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
+
+    public DbSet<DocumentShare> DocumentShares => Set<DocumentShare>();
+
+    public DbSet<DocumentAcknowledgement> DocumentAcknowledgements =>
+        Set<DocumentAcknowledgement>();
 
     public DbSet<PerformanceGoal> PerformanceGoals => Set<PerformanceGoal>();
 
