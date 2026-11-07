@@ -19,6 +19,8 @@ public static class ModuleCatalogue
         "organization.headcount",
         "organization.employees",
         "organization.employment-types",
+        "organization.benefit-plans",
+        "organization.loans",
         "organization.eor",
         "organization.employee-checklist",
         "employee.medical",
@@ -27,12 +29,14 @@ public static class ModuleCatalogue
         "employee.notes",
         "talent.workforce-requests",
         "talent.recruitment",
+        "talent.hire-tracker",
         "talent.onboarding",
         "talent.offboarding",
         "talent.performance",
         "talent.training",
         "time-payroll.attendance",
         "time-payroll.leave",
+        "time-payroll.sickness",
         "time-payroll.expenses",
         "operations.assets",
         "operations.documents",
@@ -66,6 +70,8 @@ public static class ModuleCatalogue
             ["organization.headcount"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["organization.employees"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Recruiter, Role.Auditor, Role.ReadOnly],
             ["organization.employment-types"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["organization.benefit-plans"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            ["organization.loans"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["organization.eor"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["organization.employee-checklist"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["employee.medical"] = [Role.SuperAdmin, Role.HrAdmin],
@@ -74,12 +80,26 @@ public static class ModuleCatalogue
             ["employee.notes"] = [Role.SuperAdmin, Role.HrAdmin],
             ["talent.workforce-requests"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Executive, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["talent.recruitment"] = [Role.SuperAdmin, Role.HrAdmin, Role.Recruiter, Role.Auditor, Role.ReadOnly],
+
+            // Wider than recruitment itself, because the tracker is the one
+            // screen that answers "where has this got to" without exposing
+            // candidates: it carries the role, the stage and the days since it
+            // moved. A line manager waiting on a hire, and Finance watching
+            // what the headcount they approved turned into, both belong here.
+            ["talent.hire-tracker"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Executive, Role.Recruiter, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["talent.onboarding"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Auditor, Role.ReadOnly],
             ["talent.offboarding"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["talent.performance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
             ["talent.training"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["time-payroll.attendance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["time-payroll.leave"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
+
+            // Same roles as leave, because a line manager has to be able to
+            // see their team is off. What the module does not carry is the
+            // clinical detail: that follows the data scope, so a manager
+            // reads "absent" where HR reads "mental health". Granting the
+            // module and withholding the reason is the whole §10.8 design.
+            ["time-payroll.sickness"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
 
             // Finance holds this one, unlike leave: the last step of an expense
             // chain is the pay-out, and whoever pays has to be able to see what

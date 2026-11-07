@@ -8,6 +8,7 @@ using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Performance;
 using Motee.Domain.Recruitment;
+using Motee.Domain.Sickness;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
 
@@ -80,6 +81,7 @@ internal sealed class CalendarService(
             .. await HolidaysAsync(query, cancellationToken),
             .. await EventsAsync(query, viewer, subjects, people, cancellationToken),
             .. await LeaveAsync(query, viewer, subjects, people, cancellationToken),
+            .. await SicknessAsync(query, subjects, people, cancellationToken),
             .. Celebrations(query, people),
             .. await InterviewsAsync(query, viewer, subjects, people, cancellationToken),
             .. await ReviewsAsync(query, viewer, people, cancellationToken),
@@ -587,6 +589,65 @@ internal sealed class CalendarService(
             PersonName = NameOf(people, relief),
             Pending = request.Status == LeaveRequestStatus.Pending,
         };
+
+    // ── reading: sickness ───────────────────────────────────────────────────
+
+    // Always "sickness absence", for everybody including the person it is
+    // about. Unlike leave, there is no version of this that names the reason:
+    // the clinical category is special-category data and the calendar is the
+    // most widely readable surface in the product. Somebody who wants the
+    // detail of their own absence has the absence record, which checks for
+    // the grant.
+    private async Task<IReadOnlyList<CalendarItemDto>> SicknessAsync(
+        CalendarQuery query,
+        IReadOnlySet<Guid> subjects,
+        IReadOnlyDictionary<Guid, Person> people,
+        CancellationToken cancellationToken)
+    {
+        if (subjects.Count == 0)
+        {
+            return [];
+        }
+
+        List<Guid> wanted = [.. subjects];
+
+        List<SicknessRecord> absences = await dbContext.SicknessRecords
+            .AsNoTracking()
+            .Where(record => wanted.Contains(record.EmployeeId)
+                && (record.ApprovalStatus == SicknessApprovalStatus.AwaitingApproval
+                    || record.ApprovalStatus == SicknessApprovalStatus.Approved)
+                && record.StartDate <= query.To
+                && (record.EndDate ?? query.To) >= query.From)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. absences.Select(record =>
+            {
+                string what = record.Kind == SicknessKind.MedicalProcedure
+                    ? "Medical appointment"
+                    : "Sickness absence";
+
+                string? who = NameOf(people, record.EmployeeId);
+
+                return new CalendarItemDto
+                {
+                    Id = $"sickness:{record.Id:D}",
+                    Title = who is null ? what : $"{who} — {what.ToLowerInvariant()}",
+                    Date = record.StartDate,
+                    EndDate = record.EndDate,
+                    AllDay = true,
+                    Category = CalendarCategory.Sickness,
+                    Layer = CalendarLayer.Schedule,
+                    PersonId = record.EmployeeId,
+                    PersonName = who,
+
+                    // Still off, so the end date is a guess rather than a fact.
+                    Pending = record.AbsenceState == AbsenceState.Ongoing,
+                };
+            }),
+        ];
+    }
 
     // ── reading: birthdays and work anniversaries ───────────────────────────
 

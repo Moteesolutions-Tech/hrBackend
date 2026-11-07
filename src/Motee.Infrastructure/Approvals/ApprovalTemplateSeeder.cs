@@ -18,12 +18,149 @@ internal sealed class ApprovalTemplateSeeder(MoteeDbContext dbContext, TimeProvi
     // financeAccessLevelId names the level the expense chain's second step asks. Passed
     // in rather than looked up, because the levels are seeded in the same transaction
     // and are not queryable yet.
-    public void Seed(Guid tenantId, Guid? financeAccessLevelId = null)
+    public void Seed(
+        Guid tenantId,
+        Guid? financeAccessLevelId = null,
+        Guid? hrAccessLevelId = null)
     {
         DateTimeOffset now = timeProvider.GetUtcNow();
 
         SeedOnboarding(tenantId, now);
         SeedExpenseClaim(tenantId, now, financeAccessLevelId);
+        SeedWorkforceRequest(tenantId, now, financeAccessLevelId);
+        SeedLoanRequest(tenantId, now, financeAccessLevelId, hrAccessLevelId);
+    }
+
+    // Line manager, HR, then Finance — the chain the loan form tells the
+    // applicant to expect.
+    //
+    // Three steps because three different questions are being asked, and only
+    // one of them is about money: the manager knows whether the person can
+    // carry the deduction, HR knows whether the company's loan policy allows
+    // it, and Finance knows whether the cash is there. Collapsing them would
+    // make one of those answers nobody's.
+    private void SeedLoanRequest(
+        Guid tenantId,
+        DateTimeOffset now,
+        Guid? financeAccessLevelId,
+        Guid? hrAccessLevelId)
+    {
+        Guid templateId = Guid.NewGuid();
+
+        dbContext.ApprovalTemplates.Add(new ApprovalTemplate
+        {
+            Id = templateId,
+            TenantId = tenantId,
+            DocumentType = ApprovalDocumentTypes.LoanRequest,
+            Name = "Standard loan request",
+            Description = "The line manager and HR agree the request, "
+                + "then Finance releases the money.",
+            IsDefault = true,
+            IsSystem = false,
+            IsActive = true,
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+
+        Add(
+            templateId,
+            tenantId,
+            0,
+            "Line manager approval",
+            ApproverResolver.LineManager,
+            required: true);
+
+        int sequence = 1;
+
+        if (hrAccessLevelId is Guid hr)
+        {
+            Add(
+                templateId,
+                tenantId,
+                sequence++,
+                "HR review",
+                ApproverResolver.Role,
+                required: true,
+                roleId: hr);
+        }
+
+        // Required where the level exists, for the same reason the expense
+        // chain's is: this is money leaving the company, and a step that could
+        // be skipped for want of a configured person is a step that releases
+        // cash nobody checked.
+        if (financeAccessLevelId is Guid finance)
+        {
+            Add(
+                templateId,
+                tenantId,
+                sequence,
+                "Finance release",
+                ApproverResolver.Role,
+                required: true,
+                roleId: finance);
+        }
+    }
+
+    // Line manager, department head, then Finance for the money.
+    //
+    // Longer than the expense chain on purpose: an expense claim is spending
+    // that has already happened, and a headcount request is a salary the
+    // company takes on indefinitely. Finance is required where the level
+    // exists, because the budget commitment is the whole point of asking.
+    private void SeedWorkforceRequest(
+        Guid tenantId,
+        DateTimeOffset now,
+        Guid? financeAccessLevelId)
+    {
+        Guid templateId = Guid.NewGuid();
+
+        dbContext.ApprovalTemplates.Add(new ApprovalTemplate
+        {
+            Id = templateId,
+            TenantId = tenantId,
+            DocumentType = ApprovalDocumentTypes.WorkforceRequest,
+            Name = "Standard headcount request",
+            Description = financeAccessLevelId is null
+                ? "The line manager and the department head agree the headcount."
+                : "The line manager and department head agree the headcount, "
+                    + "then Finance signs off the budget.",
+            IsDefault = true,
+            IsSystem = false,
+            IsActive = true,
+            CreatedAt = now,
+            UpdatedAt = now,
+        });
+
+        Add(
+            templateId,
+            tenantId,
+            0,
+            "Line manager approval",
+            ApproverResolver.LineManager,
+            required: true);
+
+        // Optional for the same reason onboarding's is: a department with no
+        // head recorded is ordinary in a young company, and a required step
+        // there would strand every request behind somebody who does not exist.
+        Add(
+            templateId,
+            tenantId,
+            1,
+            "Department head approval",
+            ApproverResolver.DepartmentHead,
+            required: false);
+
+        if (financeAccessLevelId is Guid finance)
+        {
+            Add(
+                templateId,
+                tenantId,
+                2,
+                "Budget sign-off",
+                ApproverResolver.Role,
+                required: true,
+                roleId: finance);
+        }
     }
 
     // Line manager validates it, Finance pays it. Both steps required: an expense is

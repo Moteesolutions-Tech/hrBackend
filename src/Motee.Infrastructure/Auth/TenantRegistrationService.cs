@@ -24,6 +24,9 @@ internal sealed class TenantRegistrationService(
     Approvals.ApprovalTemplateSeeder approvalTemplates,
     Leave.LeaveSeeder leave,
     Attendance.WorkScheduleSeeder workSchedules,
+    Organisation.EmploymentTypeSeeder employmentTypes,
+    Benefits.BenefitPlanSeeder benefitPlans,
+    Checklists.ChecklistSeeder checklist,
     IEmailDispatcher email,
     AppLinks links,
     IMemoryCache noticeCache,
@@ -156,12 +159,14 @@ internal sealed class TenantRegistrationService(
             // invites somebody or files a claim on their first day is not stopped by
             // there being no template configured.
             //
-            // The expense chain's second step asks whoever holds Payroll & Finance, so
-            // that level's id is handed over — it was created a line ago and is not
-            // queryable until this transaction commits.
+            // The expense chain's second step asks whoever holds Payroll & Finance, and
+            // the loan chain asks HR before it, so those levels' ids are handed over —
+            // they were created a line ago and are not queryable until this transaction
+            // commits.
             approvalTemplates.Seed(
                 tenant.Id,
-                levels.FirstOrDefault(level => level.TemplateSlug == Roles.ToSlug(Role.Finance))?.Id);
+                levels.FirstOrDefault(level => level.TemplateSlug == Roles.ToSlug(Role.Finance))?.Id,
+                levels.FirstOrDefault(level => level.TemplateSlug == Roles.ToSlug(Role.HrAdmin))?.Id);
 
             // Leave types, their policies, and three years of public holidays. Country
             // dependent, unlike the seeders above: statutory entitlement and the days a
@@ -174,6 +179,26 @@ internal sealed class TenantRegistrationService(
             // standard day runs differ, and one shared default would be wrong for one
             // of the two from the day it was written.
             workSchedules.Seed(tenant.Id, countryCode);
+
+            // The eleven kinds of employment. Not country dependent: the
+            // taxonomy is the same in both, and what differs — the statutory
+            // deductions that attach to each — is derived from the tenant's
+            // country on read rather than frozen into a seeded row that would
+            // be wrong the next time the law moved.
+            employmentTypes.Seed(tenant.Id);
+
+            // The benefits catalogue, and the three coverage levels the plan
+            // form offers. Country dependent, because a Nigerian HMO means
+            // nothing to a UK company and a cycle-to-work scheme means nothing
+            // to a Nigerian one. Every plan arrives as a draft with no terms
+            // filled in — see the seeder.
+            benefitPlans.Seed(tenant.Id, countryCode);
+
+            // The onboarding task template. Not country dependent: signing
+            // paperwork, setting up a laptop and meeting your manager are the
+            // same job everywhere, and what differs — the statutory documents
+            // — is the joiner pack's business rather than this template's.
+            checklist.Seed(tenant.Id);
 
             // The owner, and deliberately nothing else.
             //
