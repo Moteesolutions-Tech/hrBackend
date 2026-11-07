@@ -125,6 +125,36 @@ public static class DependencyInjection
         services.AddScoped<
             Application.Calendar.ICalendarService, Calendar.CalendarService>();
         services.AddScoped<
+            Application.Sickness.ISicknessService, Sickness.SicknessService>();
+        services.AddScoped<
+            Application.Headcount.IHeadcountService, Headcount.HeadcountService>();
+        services.AddScoped<
+            Application.Diversity.IDiversityService, Diversity.DiversityService>();
+        services.AddScoped<
+            Application.Workforce.IWorkforceRequestService,
+            Workforce.WorkforceRequestService>();
+        services.AddScoped<
+            Application.Workforce.IWorkforceAnalyticsService,
+            Workforce.WorkforceAnalyticsService>();
+        services.AddScoped<
+            Application.Workforce.IHireTrackerService, Workforce.HireTrackerService>();
+        services.AddScoped<
+            Application.Organisation.IEmploymentTypeService,
+            Organisation.EmploymentTypeService>();
+        services.AddScoped<Organisation.EmploymentTypeSeeder>();
+        services.AddScoped<
+            Application.Organisation.IPositionService, Organisation.PositionService>();
+        services.AddScoped<
+            Application.Benefits.IBenefitPlanService, Benefits.BenefitPlanService>();
+        services.AddScoped<Benefits.BenefitPlanSeeder>();
+        services.AddScoped<Application.Loans.ILoanService, Loans.LoanService>();
+        services.AddScoped<
+            Application.Checklists.IChecklistService, Checklists.ChecklistService>();
+        services.AddScoped<Checklists.ChecklistSeeder>();
+        services.AddScoped<Application.Work.ITaskService, Work.TaskService>();
+        services.AddScoped<
+            Application.Recognition.IKudosService, Recognition.KudosService>();
+        services.AddScoped<
             Application.Recruitment.IRequisitionService, Recruitment.RequisitionService>();
         services.AddScoped<
             Application.Recruitment.ICandidateService, Recruitment.CandidateService>();

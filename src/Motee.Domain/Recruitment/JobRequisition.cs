@@ -57,6 +57,14 @@ public class JobRequisition : ITenantScoped
 
     public Guid? DepartmentId { get; set; }
 
+    // Which post on the establishment this recruits into.
+    //
+    // Null for a vacancy typed free-hand rather than raised against a post,
+    // which is how most start. Set, it is what lets the establishment say
+    // "two of these three seats are being hired for" instead of guessing from
+    // the job title.
+    public Guid? PositionId { get; set; }
+
     // Who owns the hire. A vacancy without one is a vacancy nobody is
     // answerable for, which is why publishing refuses without it.
     public Guid? HiringManagerId { get; set; }

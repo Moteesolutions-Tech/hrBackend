@@ -83,6 +83,14 @@ public class Employee : ITenantScoped
     // schedule, which is this one or the default.
     public Guid? WorkScheduleId { get; set; }
 
+    // Which post on the establishment they hold.
+    //
+    // Explicit rather than matched on JobTitle, which is free text: "Backend
+    // Engineer" and "Backend engineer" would be two posts, and renaming a
+    // post would silently empty it. Null means nobody has placed them, which
+    // is a visible gap rather than a guess.
+    public Guid? PositionId { get; set; }
+
     public EmployeeStatus Status { get; set; } = EmployeeStatus.Pending;
 
     public DateOnly? StartDate { get; set; }

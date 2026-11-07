@@ -153,6 +153,7 @@ public class CalendarEventTests
     [InlineData(CalendarCategory.Cover)]
     [InlineData(CalendarCategory.Interview)]
     [InlineData(CalendarCategory.Review)]
+    [InlineData(CalendarCategory.Sickness)]
     public void ADerivedCategoryCannotBeChosen(CalendarCategory category)
     {
         Assert.False(CalendarCategories.Choosable(category));

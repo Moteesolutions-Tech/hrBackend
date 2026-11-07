@@ -77,8 +77,9 @@ public class ApprovalTemplateSeedTests(PostgresFixture fixture)
     // the product does — teaches people the screen lies. A category gets a default when
     // the module that starts it exists, and gains one the day that module ships.
     //
-    // Expenses earned its place here when the claims module landed. The eight document
-    // types still absent have not, and this is what keeps them out.
+    // Expenses earned its place here when the claims module landed, and headcount
+    // requests when theirs did. The seven document types still absent have not, and
+    // this is what keeps them out.
     [SkippableFact]
     public async Task NothingIsSeededForModulesThatDoNotExist()
     {
@@ -89,7 +90,12 @@ public class ApprovalTemplateSeedTests(PostgresFixture fixture)
         IReadOnlyList<ApprovalTemplateDto> all = await Templates(owned).ListAsync();
 
         Assert.Equal(
-            [ApprovalDocumentTypes.ExpenseClaim, ApprovalDocumentTypes.Onboarding],
+            [
+                ApprovalDocumentTypes.ExpenseClaim,
+                ApprovalDocumentTypes.LoanRequest,
+                ApprovalDocumentTypes.Onboarding,
+                ApprovalDocumentTypes.WorkforceRequest,
+            ],
             all.Select(template => template.DocumentType)
                 .Distinct()
                 .Order(StringComparer.Ordinal));
@@ -146,8 +152,9 @@ public class ApprovalTemplateSeedTests(PostgresFixture fixture)
         List<ApprovalTemplate> templates =
             await unfiltered.ApprovalTemplates.IgnoreQueryFilters().ToListAsync();
 
-        // One per module that starts a chain — onboarding and expense claims.
-        Assert.Equal(2, templates.Count);
+        // One per module that starts a chain — onboarding, expense claims,
+        // headcount requests and staff loans.
+        Assert.Equal(4, templates.Count);
         Assert.All(templates, template => Assert.Equal(tenantId, template.TenantId));
 
         Assert.All(

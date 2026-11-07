@@ -5,6 +5,19 @@ namespace Motee.Domain.Employees;
 // that it happened.
 public static class EmployeeLifecycle
 {
+    // Who is actually in post. Every figure that counts people has to agree on
+    // this, or headcount and benefits report different workforces off the same
+    // table: pending and onboarded have not started, so counting them inflates
+    // everything from the day an offer lands; inactive has left, and deleted
+    // was never meant to be there.
+    public static readonly EmployeeStatus[] InPost =
+    [
+        EmployeeStatus.Active,
+        EmployeeStatus.Probation,
+        EmployeeStatus.OnLeave,
+        EmployeeStatus.Offboarding,
+    ];
+
     private static readonly Dictionary<EmployeeStatus, EmployeeStatus[]> Allowed = new()
     {
         // Pending is the earliest state, so nothing from here is backwards. Importing

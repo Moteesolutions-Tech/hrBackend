@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Motee.Application.Tenancy;
 using Motee.Domain.Announcements;
 using Motee.Domain.Auth;
+using Motee.Domain.Benefits;
 using Motee.Domain.Common;
 using Motee.Domain.Approvals;
 using Motee.Domain.Assets;
@@ -13,6 +14,7 @@ using Motee.Domain.Attendance;
 using Motee.Domain.Audit;
 using Motee.Domain.Authorization;
 using Motee.Domain.Calendar;
+using Motee.Domain.Checklists;
 using Motee.Domain.Contracts;
 using Motee.Domain.Documents;
 using Motee.Domain.Employees;
@@ -20,13 +22,20 @@ using Motee.Domain.Expenses;
 using Motee.Domain.Exports;
 using Motee.Domain.Files;
 using Motee.Domain.Leave;
+using Motee.Domain.Loans;
 using Motee.Domain.Offboarding;
 using Motee.Domain.Onboarding;
 using Motee.Domain.Notifications;
 using Motee.Domain.Organisation;
 using Motee.Domain.Performance;
+using Motee.Domain.Diversity;
+using Motee.Domain.Headcount;
+using Motee.Domain.Recognition;
 using Motee.Domain.Recruitment;
+using Motee.Domain.Sickness;
+using Motee.Domain.Workforce;
 using Motee.Domain.Tenants;
+using Motee.Domain.Work;
 using Motee.Infrastructure.Identity;
 
 namespace Motee.Infrastructure.Persistence;
@@ -76,6 +85,38 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 
     public DbSet<CalendarEventAttendee> CalendarEventAttendees => Set<CalendarEventAttendee>();
+
+    public DbSet<SicknessRecord> SicknessRecords => Set<SicknessRecord>();
+
+    public DbSet<HeadcountPlan> HeadcountPlans => Set<HeadcountPlan>();
+
+    public DbSet<DiversityDeclaration> DiversityDeclarations => Set<DiversityDeclaration>();
+
+    public DbSet<WorkforceRequest> WorkforceRequests => Set<WorkforceRequest>();
+
+    public DbSet<EmploymentTypeConfig> EmploymentTypeConfigs => Set<EmploymentTypeConfig>();
+
+    public DbSet<Position> Positions => Set<Position>();
+
+    public DbSet<BenefitPlan> BenefitPlans => Set<BenefitPlan>();
+
+    public DbSet<BenefitCoverageLevel> BenefitCoverageLevels => Set<BenefitCoverageLevel>();
+
+    public DbSet<EmployeeLoan> EmployeeLoans => Set<EmployeeLoan>();
+
+    public DbSet<LoanRepayment> LoanRepayments => Set<LoanRepayment>();
+
+    public DbSet<ChecklistItem> ChecklistItems => Set<ChecklistItem>();
+
+    public DbSet<ChecklistCompletion> ChecklistCompletions => Set<ChecklistCompletion>();
+
+    public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+
+    public DbSet<KudosPost> KudosPosts => Set<KudosPost>();
+
+    public DbSet<KudosReaction> KudosReactions => Set<KudosReaction>();
+
+    public DbSet<KudosComment> KudosComments => Set<KudosComment>();
 
     public DbSet<Contract> Contracts => Set<Contract>();
 

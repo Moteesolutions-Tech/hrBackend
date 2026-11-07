@@ -34,24 +34,30 @@ public sealed class PostgresFixture : IAsyncLifetime
             return;
         }
 
+        await using MoteeDbContext context = CreateContext();
+
         try
         {
-            await using MoteeDbContext context = CreateContext();
-
             if (!await context.Database.CanConnectAsync())
             {
                 SkipReason = $"{ConnectionVariable} is set but the database is unreachable.";
                 return;
             }
-
-            // Fail loudly rather than skipping if the schema has not been applied —
-            // that is a real problem, not an absent opt-in.
-            await context.Tenants.AnyAsync();
         }
         catch (Exception exception)
         {
-            SkipReason = $"{ConnectionVariable} is set but unusable: {exception.Message}";
+            // Only a connection failure is a skip: the opt-in is set but the
+            // server is not there.
+            SkipReason = $"{ConnectionVariable} is set but unreachable: {exception.Message}";
+            return;
         }
+
+        // Everything past here throws rather than skipping. An unapplied schema or
+        // a model that will not map are real breaks, and a catch-all here used to
+        // turn both into "every integration test skipped" — which reads as green
+        // in CI. One mis-mapped property silently took the whole suite out of the
+        // run once; it should have been a hard failure on the first line.
+        await context.Tenants.AnyAsync();
     }
 
     // Tenant-scoped entities are filtered by the context, so a verification query
@@ -224,17 +230,15 @@ public sealed class PostgresFixture : IAsyncLifetime
         await using MoteeDbContext context = CreateContext();
 
         await context.Database.ExecuteSqlRawAsync(
-            // Listed explicitly rather than relying on the cascade from tenants. The
-            // cascade does clear them today, but a table added later without a tenant
-            // foreign key would leak rows between tests, and the failure would look
-            // like a flaky assertion rather than a missing name here.
-            // audit_entries is the case that note warned about: it has no foreign key to
-            // tenants on purpose, so nothing cascades to it and every test would inherit
-            // the previous one's history.
+
             "TRUNCATE approval_delegations, approval_attachments, approval_events, approval_step_instances, approval_instances, approval_template_steps, approval_templates, offboarding_clearance_items, offboarding_records, joiner_documents, guarantors, starter_tax_records, onboarding_records, "
             + "interviews, candidate_offers, candidate_scorecards, candidates, job_requisitions, "
             + "announcement_views, announcement_acknowledgements, announcements, "
-            + "calendar_event_attendees, calendar_events, "
+            + "calendar_event_attendees, calendar_events, sickness_records, headcount_plans, "
+            + "diversity_declarations, workforce_requests, employment_type_configs, positions, "
+            + "benefit_plans, benefit_coverage_levels, loan_repayments, employee_loans, "
+            + "checklist_completions, checklist_items, task_items, "
+            + "kudos_reactions, kudos_comments, kudos_posts, "
             + "notifications, expense_claims, contract_notes, contract_signatures, contracts, "
             + "document_acknowledgements, document_shares, document_versions, "
             + "hr_documents, document_folders, "

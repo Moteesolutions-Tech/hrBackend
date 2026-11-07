@@ -15,11 +15,13 @@ public static class ApprovalDocumentTypes
     public const string TrainingRequest = "training_request";
     public const string AssetRequest = "asset_request";
     public const string ExpenseClaim = "expense_claim";
+    public const string LoanRequest = "loan_request";
 
     public static readonly IReadOnlyList<string> BuiltIn =
     [
         WorkforceRequest, LeaveRequest, JobRequisition, Contract, Onboarding,
         OffboardingClearance, PromotionRequest, TrainingRequest, AssetRequest, ExpenseClaim,
+        LoanRequest,
     ];
 }
 

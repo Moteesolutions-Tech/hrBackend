@@ -47,6 +47,11 @@ public enum CalendarCategory
     Cover,
     Interview,
     Review,
+
+    // Always drawn as "sickness absence" and never as the reason. The
+    // calendar is the most widely readable surface in the product, and the
+    // clinical category is special-category data.
+    Sickness,
 }
 
 public static class CalendarCategories

@@ -4,12 +4,14 @@ using Motee.Application.Auth;
 using Motee.Application.Calendar;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
+using Motee.Application.Sickness;
 using Motee.Domain.Calendar;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Organisation;
 using Motee.Domain.Performance;
 using Motee.Domain.Recruitment;
+using Motee.Domain.Sickness;
 using Motee.Infrastructure.Persistence;
 using Motee.Tests.Alerts;
 
@@ -621,6 +623,59 @@ public class CalendarServiceTests(PostgresFixture fixture)
 
         Assert.Equal("Covering Cara Okafor", cover.Title);
         Assert.Equal(_bolaId, cover.PersonId);
+    }
+
+    // ── sickness ────────────────────────────────────────────────────────────
+
+    // Never the reason, and not even to the person it is about. Unlike leave
+    // there is no named version of this item: the clinical category is
+    // special-category data and the calendar is the most widely readable
+    // surface in the product.
+    [SkippableFact]
+    public async Task SicknessShowsAsAbsenceAndNeverAsADiagnosis()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.True((await Resolve<ISicknessService>(provider).ReportAsync(new SicknessRequest
+        {
+            EmployeeId = _bolaId,
+            StartDate = Today.AddDays(1),
+            EndDate = Today.AddDays(3),
+            Reason = SicknessReason.MentalHealth,
+            ReasonDetail = "Signed off with burnout",
+            Source = SicknessSource.Self,
+        })).Succeeded);
+
+        CalendarItemDto item = Assert.Single(
+            await AgendaAsync(provider),
+            candidate => candidate.Category == CalendarCategory.Sickness);
+
+        Assert.Equal("Bola Okafor — sickness absence", item.Title);
+        Assert.DoesNotContain("burnout", item.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("mental", item.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(item.Description);
+        Assert.Equal(Today.AddDays(1), item.Date);
+        Assert.Equal(Today.AddDays(3), item.EndDate);
+    }
+
+    [SkippableFact]
+    public async Task AnOngoingAbsenceIsMarkedPendingBecauseItsEndIsAGuess()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.True((await Resolve<ISicknessService>(provider).ReportAsync(new SicknessRequest
+        {
+            EmployeeId = _bolaId,
+            StartDate = Today,
+            Reason = SicknessReason.ColdOrFlu,
+            Source = SicknessSource.Self,
+        })).Succeeded);
+
+        Assert.True(Assert.Single(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Sickness).Pending);
     }
 
     // ── celebrations ────────────────────────────────────────────────────────
