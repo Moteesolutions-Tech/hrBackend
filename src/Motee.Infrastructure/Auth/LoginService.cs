@@ -4,6 +4,8 @@ using Motee.Application.Audit;
 using Motee.Application.Auth;
 using Motee.Domain.Audit;
 using Motee.Domain.Identity;
+using Motee.Domain.Settings;
+using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
@@ -13,7 +15,8 @@ internal sealed class LoginService(
     MoteeDbContext dbContext,
     UserManager<ApplicationUser> userManager,
     IAuditTrail audit,
-    ISessionIssuer sessionIssuer) : ILoginService
+    ISessionIssuer sessionIssuer,
+    TimeProvider timeProvider) : ILoginService
 {
     public async Task<LoginResult> LoginAsync(
         LoginRequest request,
@@ -67,6 +70,31 @@ internal sealed class LoginService(
             return LoginResult.Failed(LoginOutcome.EmailNotConfirmed);
         }
 
+        // The company's expiry policy. Checked here, with the right password in
+        // hand, because that is the only moment it can be: there is no other
+        // point at which somebody presents a password to be judged.
+        //
+        // The way back is the forgot-password flow, which this product has — so
+        // this is a door somebody can walk through rather than a lockout. An
+        // account with no recorded change date never expires, which matters on
+        // the day a company first saves a policy: nobody has one, and expiring
+        // everybody at once is not what they asked for.
+        if (await HasLapsedAsync(user, cancellationToken))
+        {
+            audit.Record(
+                AuditAction.Login,
+                "admin.audit-trail",
+                "Sign-in refused: password has expired under the company policy",
+                entityId: user.Id,
+                entityType: nameof(ApplicationUser),
+                tenantId: user.TenantId,
+                httpStatus: 401);
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return LoginResult.Failed(LoginOutcome.PasswordExpired);
+        }
+
         await userManager.ResetAccessFailedCountAsync(user);
 
         user.LastLoginAt = DateTimeOffset.UtcNow;
@@ -99,5 +127,28 @@ internal sealed class LoginService(
             TenantId = session.TenantId,
             OnboardingCompleted = session.OnboardingCompleted,
         };
+    }
+
+    private async Task<bool> HasLapsedAsync(
+        ApplicationUser user,
+        CancellationToken cancellationToken)
+    {
+        if (user.TenantId is not Guid tenantId)
+        {
+            // Platform staff. They belong to no company, so no company's policy
+            // applies to them.
+            return false;
+        }
+
+        TenantSettings? settings = await dbContext.Tenants
+            .AsNoTracking()
+            .Where(tenant => tenant.Id == tenantId)
+            .Select(tenant => tenant.Settings)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        PasswordPolicy policy = settings?.PasswordPolicy ?? PasswordPolicy.Default;
+
+        return PasswordRules.HasExpired(
+            policy, user.PasswordChangedAt, timeProvider.GetUtcNow());
     }
 }

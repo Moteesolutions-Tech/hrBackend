@@ -8,6 +8,11 @@ using Motee.Domain.Announcements;
 using Motee.Domain.Auth;
 using Motee.Domain.Benefits;
 using Motee.Domain.Common;
+using Motee.Domain.Community;
+using Motee.Domain.Learning;
+using Motee.Domain.Projects;
+using Motee.Domain.Relations;
+using Motee.Domain.Workflows;
 using Motee.Domain.Approvals;
 using Motee.Domain.Assets;
 using Motee.Domain.Attendance;
@@ -18,9 +23,11 @@ using Motee.Domain.Checklists;
 using Motee.Domain.Contracts;
 using Motee.Domain.Documents;
 using Motee.Domain.Employees;
+using Motee.Domain.Eor;
 using Motee.Domain.Expenses;
 using Motee.Domain.Exports;
 using Motee.Domain.Files;
+using Motee.Domain.Knowledge;
 using Motee.Domain.Leave;
 using Motee.Domain.Loans;
 using Motee.Domain.Offboarding;
@@ -30,10 +37,14 @@ using Motee.Domain.Organisation;
 using Motee.Domain.Performance;
 using Motee.Domain.Diversity;
 using Motee.Domain.Headcount;
+using Motee.Domain.Helpdesk;
 using Motee.Domain.Recognition;
 using Motee.Domain.Recruitment;
+using Motee.Domain.Settings;
 using Motee.Domain.Sickness;
 using Motee.Domain.Workforce;
+using Motee.Domain.Suggestions;
+using Motee.Domain.Surveys;
 using Motee.Domain.Tenants;
 using Motee.Domain.Work;
 using Motee.Infrastructure.Identity;
@@ -48,6 +59,20 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<OtpChallengeRecord> OtpChallenges => Set<OtpChallengeRecord>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<PasswordHistoryEntry> PasswordHistory => Set<PasswordHistoryEntry>();
+
+    public DbSet<PickListOption> PickListOptions => Set<PickListOption>();
+
+    public DbSet<EorProvider> EorProviders => Set<EorProvider>();
+
+    public DbSet<EorEngagement> EorEngagements => Set<EorEngagement>();
+
+    public DbSet<EorComplianceItem> EorComplianceItems => Set<EorComplianceItem>();
+
+    public DbSet<EorInvoice> EorInvoices => Set<EorInvoice>();
+
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
 
     public DbSet<Employee> Employees => Set<Employee>();
 
@@ -117,6 +142,82 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<KudosReaction> KudosReactions => Set<KudosReaction>();
 
     public DbSet<KudosComment> KudosComments => Set<KudosComment>();
+
+    public DbSet<KnowledgeArticle> KnowledgeArticles => Set<KnowledgeArticle>();
+
+    public DbSet<ArticleRead> ArticleReads => Set<ArticleRead>();
+
+    public DbSet<ArticleFeedback> ArticleFeedback => Set<ArticleFeedback>();
+
+    public DbSet<CommunityPost> CommunityPosts => Set<CommunityPost>();
+
+    public DbSet<PostPollOption> PostPollOptions => Set<PostPollOption>();
+
+    public DbSet<PostPollVote> PostPollVotes => Set<PostPollVote>();
+
+    public DbSet<PostReaction> PostReactions => Set<PostReaction>();
+
+    public DbSet<PostComment> PostComments => Set<PostComment>();
+
+    public DbSet<Course> Courses => Set<Course>();
+
+    public DbSet<CourseQuestion> CourseQuestions => Set<CourseQuestion>();
+
+    public DbSet<CourseEnrollment> CourseEnrollments => Set<CourseEnrollment>();
+
+    public DbSet<QuizAttempt> QuizAttempts => Set<QuizAttempt>();
+
+    public DbSet<Certification> Certifications => Set<Certification>();
+
+    public DbSet<ErCase> ErCases => Set<ErCase>();
+
+    public DbSet<CaseNote> CaseNotes => Set<CaseNote>();
+
+    public DbSet<CaseMeeting> CaseMeetings => Set<CaseMeeting>();
+
+    public DbSet<CaseEvidence> CaseEvidence => Set<CaseEvidence>();
+
+    public DbSet<Workflow> Workflows => Set<Workflow>();
+
+    public DbSet<WorkflowTask> WorkflowTasks => Set<WorkflowTask>();
+
+    public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
+
+    public DbSet<RunTask> RunTasks => Set<RunTask>();
+
+    public DbSet<Project> Projects => Set<Project>();
+
+    public DbSet<ProjectTask> ProjectTasks => Set<ProjectTask>();
+
+    public DbSet<ProjectMilestone> ProjectMilestones => Set<ProjectMilestone>();
+
+    public DbSet<ProjectAllocation> ProjectAllocations => Set<ProjectAllocation>();
+
+    public DbSet<ProjectTimeEntry> ProjectTimeEntries => Set<ProjectTimeEntry>();
+
+    public DbSet<ProjectRisk> ProjectRisks => Set<ProjectRisk>();
+
+    public DbSet<ProjectDocument> ProjectDocuments => Set<ProjectDocument>();
+
+    public DbSet<GoLiveCompletion> GoLiveCompletions => Set<GoLiveCompletion>();
+
+    public DbSet<HelpdeskTicket> HelpdeskTickets => Set<HelpdeskTicket>();
+
+    public DbSet<TicketMessage> TicketMessages => Set<TicketMessage>();
+
+    public DbSet<Survey> Surveys => Set<Survey>();
+
+    public DbSet<SurveyQuestion> SurveyQuestions => Set<SurveyQuestion>();
+
+    public DbSet<SurveyResponse> SurveyResponses => Set<SurveyResponse>();
+
+    public DbSet<SurveyAnswer> SurveyAnswers => Set<SurveyAnswer>();
+
+    public DbSet<Suggestion> Suggestions => Set<Suggestion>();
+
+    public DbSet<SuggestionVote> SuggestionVotes => Set<SuggestionVote>();
+
+    public DbSet<SuggestionComment> SuggestionComments => Set<SuggestionComment>();
 
     public DbSet<Contract> Contracts => Set<Contract>();
 

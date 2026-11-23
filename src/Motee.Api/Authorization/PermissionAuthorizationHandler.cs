@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Motee.Application.Auth;
 using Motee.Application.Authorization;
+using Motee.Application.Settings;
 using Motee.Domain.Authorization;
 
 namespace Motee.Api.Authorization;
@@ -8,6 +9,7 @@ namespace Motee.Api.Authorization;
 internal sealed class PermissionAuthorizationHandler(
     IHttpContextAccessor httpContextAccessor,
     IUserPermissions userPermissions,
+    IEnabledFeatures enabledFeatures,
     IDataScopeResolver scopeResolver) : AuthorizationHandler<PermissionRequirement>
 {
     // Where the granted breadth is left for the endpoint to read. Passing the check
@@ -28,6 +30,18 @@ internal sealed class PermissionAuthorizationHandler(
         // frozen at sign-in, so correcting a level would not take effect until every
         // token had expired.
         if (!Guid.TryParse(context.User.FindFirst(MoteeClaimTypes.Subject)?.Value, out Guid userId))
+        {
+            return;
+        }
+
+        // Asked before anything else, and before the owner bypass below.
+        //
+        // A module switched off is not a permission the caller is missing — it
+        // is a part of the product this company does not have, so the owner
+        // does not bypass it either. Putting this after the bypass would leave
+        // the one person most likely to be testing the switch as the one person
+        // it did not apply to.
+        if (!await enabledFeatures.AllowsAsync(requirement.Module))
         {
             return;
         }

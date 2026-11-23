@@ -43,4 +43,12 @@ public class ApplicationUser : IdentityUser<Guid>
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset? LastLoginAt { get; set; }
+
+    // When the password was last set, for the company's expiry policy.
+    //
+    // Null on every account that predates this column, and null never expires.
+    // The day a company first saves a 90-day expiry nobody has a recorded
+    // change date, and treating that as lapsed would lock out everybody at
+    // once — which is not what they asked for.
+    public DateTimeOffset? PasswordChangedAt { get; set; }
 }

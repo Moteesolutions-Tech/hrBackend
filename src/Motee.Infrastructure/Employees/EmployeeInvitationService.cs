@@ -502,6 +502,11 @@ internal sealed class EmployeeInvitationService(
             FirstName = employee.FirstName,
             LastName = employee.LastName,
             CreatedAt = now,
+
+            // Stamped so the company's expiry policy has something to measure
+            // from. Without it the first password somebody sets never expires,
+            // however long the policy says.
+            PasswordChangedAt = now,
         };
 
         IdentityResult creation = await userManager.CreateAsync(user, request.Password);

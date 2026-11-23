@@ -8,6 +8,7 @@ using Motee.Domain.Approvals;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Infrastructure.Persistence;
+using Motee.Tests.Alerts;
 
 namespace Motee.Tests.Integration;
 
@@ -16,6 +17,20 @@ namespace Motee.Tests.Integration;
 [Collection(PostgresCollection.Name)]
 public class LeaveRequestTests(PostgresFixture fixture)
 {
+    // Pinned, because a balance belongs to a leave year and these ranges are
+    // measured from "today". The widest of them reaches 57 days out, so once
+    // the calendar passed mid-November the second booking in
+    // DaysAlreadyBookedCountAgainstTheNextRequest landed in January — a fresh
+    // leave year with nothing booked against it — and a request the test
+    // expects to be refused for an insufficient balance was allowed.
+    //
+    // March keeps every range inside one leave year whatever day the suite
+    // runs on.
+    private static readonly DateOnly Pinned = new(2026, 3, 2);
+
+    private readonly MovableClock _clock = new(
+        new DateTimeOffset(Pinned.ToDateTime(new TimeOnly(8, 0)), TimeSpan.Zero));
+
     private Guid _tenantId;
     private Guid _employeeId;
     private Guid _annualTypeId;
@@ -80,7 +95,8 @@ public class LeaveRequestTests(PostgresFixture fixture)
             await seed.SaveChangesAsync();
         }
 
-        ServiceProvider provider = fixture.BuildProvider();
+        ServiceProvider provider = fixture.BuildProvider(
+            services => services.AddSingleton<TimeProvider>(_clock));
         provider.GetRequiredService<PostgresFixture.MutableTenant>().TenantId = _tenantId;
 
         return provider;
@@ -91,7 +107,7 @@ public class LeaveRequestTests(PostgresFixture fixture)
 
     // Far enough out to clear the 14-day notice the seeded annual policy asks for.
     private static DateOnly SoonEnough(int addDays = 30) =>
-        DateOnly.FromDateTime(DateTime.UtcNow.AddDays(addDays));
+        Pinned.AddDays(addDays);
 
     private Task<LeaveRequestResult> BookAsync(
         ServiceProvider provider,
@@ -198,7 +214,7 @@ public class LeaveRequestTests(PostgresFixture fixture)
         Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
         await using ServiceProvider provider = await ArrangeAsync();
 
-        DateOnly lastWeek = NextMonday(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-10)));
+        DateOnly lastWeek = NextMonday(Pinned.AddDays(-10));
 
         LeaveRequestResult booked = await BookAsync(
             provider, lastWeek, lastWeek, typeId: _sickTypeId);

@@ -18,6 +18,18 @@ public enum FilePurpose
     // by the approval rather than by a person — the same file can be the reason a
     // request was granted, and it belongs with that decision.
     ApprovalAttachment,
+
+    // A rollout document hung off a project: a charter, a data-migration
+    // mapping, a UAT plan. Owned by the project rather than by a person, and
+    // read by whoever is on the project rather than under the document
+    // library's sharing rules.
+    ProjectDocument,
+
+    // Evidence on an employee-relations case: a statement, a photograph of a
+    // rota, an email thread. Owned by the case, and read only by the people the
+    // case's confidentiality level allows.
+    CaseEvidence,
+
     Export,
 }
 
@@ -109,6 +121,45 @@ public static class FilePolicy
             ],
         },
 
+        // A rollout document. The same ceiling as a company document, because
+        // it is the same kind of artefact: a data-migration mapping workbook
+        // or a process-map pack runs to hundreds of pages. Its own entry so
+        // tightening the library does not silently tighten projects.
+        [FilePurpose.ProjectDocument] = new()
+        {
+            MaxBytes = 50 * Mb,
+            ContentTypes =
+            [
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-powerpoint",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "text/csv",
+                .. Images,
+            ],
+        },
+
+        // Case evidence. The same shapes as a personal document, because it is
+        // the same kind of thing: a statement typed up, a rota photographed, a
+        // thread exported to PDF.
+        [FilePurpose.CaseEvidence] = new()
+        {
+            MaxBytes = 20 * Mb,
+            ContentTypes =
+            [
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "text/csv",
+                .. Images,
+            ],
+        },
+
         // Written by the export job, never uploaded by a caller.
         [FilePurpose.Export] = new() { MaxBytes = 200 * Mb, ContentTypes = ["text/csv"] },
     };
@@ -154,10 +205,15 @@ public static class FilePolicy
             "application/pdf" => Starts(head, [0x25, 0x50, 0x44, 0x46]),
 
             // Office formats are zip containers, and the older ones are OLE2.
+            // Presentations are listed too: a company document or a project
+            // document may be a deck, and without an entry they were checked
+            // against nothing at all.
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" =>
+                or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                or "application/vnd.openxmlformats-officedocument.presentationml.presentation" =>
                 Starts(head, [0x50, 0x4B, 0x03, 0x04]),
-            "application/msword" or "application/vnd.ms-excel" =>
+            "application/msword" or "application/vnd.ms-excel"
+                or "application/vnd.ms-powerpoint" =>
                 Starts(head, [0xD0, 0xCF, 0x11, 0xE0]),
 
             // Text has no signature; size and type limits are the only guard.

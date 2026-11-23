@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Motee.Application.Auth;
 using Motee.Domain.Auth;
 using Motee.Domain.Identity;
+using Motee.Domain.Tenants;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
@@ -13,10 +14,15 @@ namespace Motee.Infrastructure.Auth;
 internal sealed class RefreshTokenService(
     MoteeDbContext dbContext,
     IAccessTokenService accessTokens,
+    Application.Common.IRequestContext requestContext,
     TimeProvider timeProvider,
     ILogger<RefreshTokenService> logger) : IRefreshTokenService
 {
     private const int TokenBytes = 32;
+
+    // Long enough for any real browser's string and short enough that a
+    // deliberately enormous header cannot be used to fill the column.
+    private const int AgentLength = 400;
 
     public async Task<IssuedRefreshToken> IssueAsync(
         Guid userId,
@@ -26,14 +32,23 @@ internal sealed class RefreshTokenService(
         DateTimeOffset now = timeProvider.GetUtcNow();
         string raw = GenerateToken();
 
+        DateTimeOffset expiresAt =
+            RefreshTokenPolicy.ExpiresAt(now, await SessionMinutesAsync(userId, cancellationToken));
+
         dbContext.RefreshTokens.Add(new RefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             TokenHash = Hash(raw),
             CreatedAt = now,
-            ExpiresAt = RefreshTokenPolicy.ExpiresAt(now),
+            ExpiresAt = expiresAt,
             CreatedByIp = createdByIp,
+
+            // Read from the request rather than passed in, so the two callers
+            // cannot disagree about it. Null for anything issued without a
+            // request, which is honest — the device list then shows it as
+            // unknown rather than naming a browser nobody used.
+            CreatedByUserAgent = Agent(),
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -41,7 +56,7 @@ internal sealed class RefreshTokenService(
         return new IssuedRefreshToken
         {
             Value = raw,
-            ExpiresAt = RefreshTokenPolicy.ExpiresAt(now),
+            ExpiresAt = expiresAt,
         };
     }
 
@@ -98,14 +113,19 @@ internal sealed class RefreshTokenService(
 
         string replacementRaw = GenerateToken();
 
+        // Re-read rather than carried over from the expiring token, so a
+        // shortened session timeout takes effect on the next refresh instead of
+        // waiting out whichever window was in force when the chain started.
         RefreshToken replacement = new()
         {
             Id = Guid.NewGuid(),
             UserId = token.UserId,
             TokenHash = Hash(replacementRaw),
             CreatedAt = now,
-            ExpiresAt = RefreshTokenPolicy.ExpiresAt(now),
+            ExpiresAt = RefreshTokenPolicy.ExpiresAt(
+                now, await SessionMinutesAsync(token.UserId, cancellationToken)),
             CreatedByIp = usedByIp,
+            CreatedByUserAgent = Agent(),
         };
 
         dbContext.RefreshTokens.Add(replacement);
@@ -170,6 +190,38 @@ internal sealed class RefreshTokenService(
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(token => token.RevokedAt, now),
                 cancellationToken);
+    }
+
+    // The company's session timeout, from the user's tenant.
+    //
+    // Read by user id rather than from the current tenant: a token is issued
+    // during sign-in, before anything has resolved which company this is.
+    // Null for platform staff, who belong to no company.
+    private async Task<int?> SessionMinutesAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        // The whole settings document, then read in memory. It is a jsonb column
+        // behind a value converter, so projecting one of its members cannot be
+        // translated to SQL.
+        TenantSettings? settings = await dbContext.Users
+            .AsNoTracking()
+            .Where(user => user.Id == userId && user.TenantId != null)
+            .Join(
+                dbContext.Tenants.AsNoTracking(),
+                user => user.TenantId,
+                tenant => tenant.Id,
+                (_, tenant) => tenant.Settings)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return settings?.PasswordPolicy.SessionTimeoutMinutes;
+    }
+
+    private string? Agent()
+    {
+        string? agent = requestContext.UserAgent;
+
+        return string.IsNullOrWhiteSpace(agent)
+            ? null
+            : agent.Length <= AgentLength ? agent : agent[..AgentLength];
     }
 
     private static string GenerateToken() =>

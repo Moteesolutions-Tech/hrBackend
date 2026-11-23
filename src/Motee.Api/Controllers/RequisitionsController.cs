@@ -19,7 +19,10 @@ namespace Motee.Api.Controllers;
 [Route("api/v{version:apiVersion}/requisitions")]
 public class RequisitionsController(IRequisitionService requisitions) : ApiControllerBase
 {
-    private const string Module = "talent.recruitment";
+    // Its own grant, not recruitment's. A line manager raises the vacancy and
+    // Finance signs it off; the recruiter owns what happens after. Gating this
+    // on recruitment refused the two roles the module exists for.
+    private const string Module = "talent.requisition";
 
     [HttpGet]
     [ProducesResponseType<PagedResult<RequisitionDto>>(StatusCodes.Status200OK)]

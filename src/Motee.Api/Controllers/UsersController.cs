@@ -15,7 +15,8 @@ public class UsersController(ITenantUserService users) : ApiControllerBase
     // The same module as the levels themselves. Seeing who holds what and changing who
     // holds what are one job done on one screen, and splitting the permission would let
     // someone assign a level to a person they are not allowed to see.
-    private const string Module = "admin.access-levels";
+    // Managing accounts, as distinct from defining what a role may do.
+    private const string Module = "admin.users";
 
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<TenantUserDto>>(StatusCodes.Status200OK)]

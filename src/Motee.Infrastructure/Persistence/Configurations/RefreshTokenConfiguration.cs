@@ -15,6 +15,7 @@ internal sealed class RefreshTokenConfiguration : IEntityTypeConfiguration<Refre
 
         builder.Property(token => token.TokenHash).HasMaxLength(64).IsRequired();
         builder.Property(token => token.CreatedByIp).HasMaxLength(64);
+        builder.Property(token => token.CreatedByUserAgent).HasMaxLength(400);
 
         builder.HasOne<ApplicationUser>()
             .WithMany()

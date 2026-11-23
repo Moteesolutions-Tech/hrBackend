@@ -13,6 +13,7 @@ public static class ModuleCatalogue
         "submissions.queue",
         "submissions.workflows",
         "organization.company",
+        "organization.branches",
         "organization.departments",
         "organization.structure",
         "organization.roles",
@@ -28,6 +29,7 @@ public static class ModuleCatalogue
         "employee.grievances",
         "employee.notes",
         "talent.workforce-requests",
+        "talent.requisition",
         "talent.recruitment",
         "talent.hire-tracker",
         "talent.onboarding",
@@ -42,6 +44,13 @@ public static class ModuleCatalogue
         "operations.documents",
         "operations.contracts",
         "operations.reports",
+
+        // Analytics has no endpoints of its own: every figure on it is a
+        // projection over modules that already serve their own data. The key
+        // exists so the permissions matrix can grant the screen at all —
+        // without it, HR cannot give anybody analytics.
+        "operations.analytics",
+
         "operations.workforce",
         "workspace.announcements",
         "workspace.calendar",
@@ -51,7 +60,9 @@ public static class ModuleCatalogue
         "workspace.helpdesk",
         "workspace.knowledge",
         "workspace.community",
+        "workspace.projects",
         "admin.access-levels",
+        "admin.users",
         "admin.audit-trail",
         "admin.grievance",
         "admin.settings",
@@ -65,6 +76,13 @@ public static class ModuleCatalogue
             ["submissions.workflows"] = [Role.SuperAdmin, Role.HrAdmin],
             ["organization.company"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["organization.departments"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
+            // Its own module, not a corner of structure. The frontend grants
+            // branches to Facilities Manager and withholds structure from
+            // them, and grants structure to Line Manager and withholds
+            // branches — so sharing one grant gets both wrong. Facilities
+            // Manager is one of the roles this backend does not model, so it
+            // is absent here the same way Payroll Admin is.
+            ["organization.branches"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["organization.structure"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
             ["organization.roles"] = [Role.SuperAdmin, Role.HrAdmin, Role.Recruiter, Role.Auditor, Role.ReadOnly],
             ["organization.headcount"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
@@ -79,6 +97,12 @@ public static class ModuleCatalogue
             ["employee.grievances"] = [Role.SuperAdmin, Role.HrAdmin],
             ["employee.notes"] = [Role.SuperAdmin, Role.HrAdmin],
             ["talent.workforce-requests"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Executive, Role.Finance, Role.Auditor, Role.ReadOnly],
+            // Raising a vacancy and running the hiring are different jobs with
+            // different grants: a line manager asks and Finance signs off,
+            // while the recruiter owns what happens next. Gating requisitions
+            // on recruitment denied the two roles the module exists for and
+            // handed it to the one it does not.
+            ["talent.requisition"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["talent.recruitment"] = [Role.SuperAdmin, Role.HrAdmin, Role.Recruiter, Role.Auditor, Role.ReadOnly],
 
             // Wider than recruitment itself, because the tracker is the one
@@ -110,6 +134,7 @@ public static class ModuleCatalogue
             ["operations.documents"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["operations.contracts"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["operations.reports"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Executive, Role.Auditor, Role.ReadOnly],
+            ["operations.analytics"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["operations.workforce"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["workspace.announcements"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
 
@@ -125,7 +150,15 @@ public static class ModuleCatalogue
             ["workspace.helpdesk"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
             ["workspace.knowledge"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
             ["workspace.community"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+            ["workspace.projects"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Finance, Role.Auditor, Role.ReadOnly],
             ["admin.access-levels"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
+
+            // Managing accounts, as distinct from defining what a role may do.
+            // Read-only is deliberately absent: the frontend withholds it
+            // here while granting it on access levels, because a list of
+            // people's accounts is not the same kind of reference data as a
+            // permission matrix.
+            ["admin.users"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor],
             ["admin.audit-trail"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin, Role.Auditor],
             ["admin.grievance"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Auditor, Role.ReadOnly],
             ["admin.settings"] = [Role.SuperAdmin, Role.HrAdmin, Role.ItAdmin],

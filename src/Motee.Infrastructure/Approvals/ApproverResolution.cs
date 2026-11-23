@@ -98,27 +98,10 @@ internal sealed class ApproverResolution(
         return ResolvedApprover.ToRole(role, level.Name);
     }
 
-    // Everyone who can act on a role step right now. Read live rather than snapshotted,
-    // so somebody who joined the team this morning can clear this morning's queue and
-    // somebody who left cannot hold one up.
+    // Everyone who can act on a role step right now. Shared with the workflow engine,
+    // which asks the same question of the same tables — see AccessLevelHolders.
     private IQueryable<Guid> EligibleHolders(Guid roleId) =>
-        dbContext.UserAccessLevels
-            .AsNoTracking()
-            .Where(assignment => assignment.AccessLevelId == roleId)
-            .Join(
-                dbContext.AccessLevels.Where(level => level.Status == AccessLevelStatus.Active),
-                assignment => assignment.AccessLevelId,
-                level => level.Id,
-                (assignment, _) => assignment.UserId)
-
-            // A holder whose own employee record has gone inactive is a leaver whose
-            // access has not been tidied up. Their queue is not somewhere work should sit.
-            .Where(userId => !dbContext.Users
-                .Any(user => user.Id == userId
-                    && user.EmployeeId != null
-                    && dbContext.Employees.Any(employee => employee.Id == user.EmployeeId
-                        && (employee.Status == Domain.Employees.EmployeeStatus.Inactive
-                            || employee.Status == Domain.Employees.EmployeeStatus.Deleted))));
+        Common.AccessLevelHolders.UserIds(dbContext, roleId);
 
     private async Task<ResolvedApprover> LineManagerAsync(
         Guid employeeId,

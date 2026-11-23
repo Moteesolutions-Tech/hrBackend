@@ -81,8 +81,7 @@ internal static class SchemaSample
         {
             JsonNode? item = Build(schema.Items, document, depth + 1, seen);
 
-            // One element, not none. An empty array tells a reader the field exists; it
-            // does not tell them what is in it, which is the question.
+
             return item is null ? new JsonArray() : new JsonArray(item);
         }
 

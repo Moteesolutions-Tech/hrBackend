@@ -155,6 +155,62 @@ public static class DependencyInjection
         services.AddScoped<
             Application.Recognition.IKudosService, Recognition.KudosService>();
         services.AddScoped<
+            Application.Suggestions.ISuggestionService, Suggestions.SuggestionService>();
+        services.AddScoped<
+            Application.Knowledge.IKnowledgeService, Knowledge.KnowledgeService>();
+        services.AddScoped<Application.Surveys.ISurveyService, Surveys.SurveyService>();
+        services.AddScoped<
+            Application.Helpdesk.IHelpdeskService, Helpdesk.HelpdeskService>();
+        services.AddScoped<
+            Application.Community.ICommunityService, Community.CommunityService>();
+        services.AddScoped<
+            Application.Learning.ILearningService, Learning.LearningService>();
+        services.AddScoped<
+            Application.Learning.ICertificationService, Learning.CertificationService>();
+        services.AddScoped<
+            Application.Relations.IErCaseService, Relations.ErCaseService>();
+
+        // Scoped, and resolved once per request inside the service: the
+        // permission check asks it once per endpoint attribute, and the answer
+        // cannot change mid-response.
+        services.AddScoped<
+            Application.Settings.IEnabledFeatures, Settings.EnabledFeatures>();
+        services.AddScoped<
+            Application.Settings.ISettingsService, Settings.SettingsService>();
+        services.AddScoped<
+            Application.Settings.IPickListService, Settings.PickListService>();
+        services.AddScoped<
+            Application.Settings.INotificationPreferenceService,
+            Settings.NotificationPreferenceService>();
+        services.AddScoped<
+            Application.Settings.ISecuritySettingsService, Settings.SecuritySettingsService>();
+
+        // Registered concretely as well as behind its interface: the compliance
+        // service needs its shared describe helper rather than the published
+        // contract, and two places deriving the same compliance standing is how
+        // they come to disagree.
+        services.AddScoped<Eor.EorService>();
+        services.AddScoped<Application.Eor.IEorService>(
+            provider => provider.GetRequiredService<Eor.EorService>());
+        services.AddScoped<
+            Application.Eor.IEorComplianceService, Eor.EorComplianceService>();
+        services.AddScoped<
+            Application.Eor.IEorBillingService, Eor.EorBillingService>();
+        services.AddScoped<
+            Application.Workflows.IWorkflowService, Workflows.WorkflowService>();
+        services.AddScoped<
+            Application.Workflows.IWorkflowRunService, Workflows.WorkflowRunService>();
+        services.AddScoped<Workflows.WorkflowSeeder>();
+        services.AddScoped<Application.Projects.IProjectService, Projects.ProjectService>();
+        services.AddScoped<
+            Application.Projects.IProjectTimeService, Projects.ProjectTimeService>();
+        services.AddScoped<
+            Application.Projects.IProjectRiskService, Projects.ProjectRiskService>();
+        services.AddScoped<
+            Application.Projects.IProjectDocumentService, Projects.ProjectDocumentService>();
+        services.AddScoped<
+            Application.Projects.IProjectGoLiveService, Projects.ProjectGoLiveService>();
+        services.AddScoped<
             Application.Recruitment.IRequisitionService, Recruitment.RequisitionService>();
         services.AddScoped<
             Application.Recruitment.ICandidateService, Recruitment.CandidateService>();
@@ -223,6 +279,19 @@ public static class DependencyInjection
         // Must come after AddIdentityCore, which registers the username-based default.
         services.RemoveAll<IUserValidator<ApplicationUser>>();
         services.AddScoped<IUserValidator<ApplicationUser>, EmailOnlyUserValidator>();
+
+        // Added alongside Identity's own rather than replacing it. The options
+        // above are the floor every tenant shares; this applies whatever the
+        // company asked for on top, and both have to pass — so the stricter of
+        // the two wins without either having to know about the other.
+        //
+        // A validator rather than a check at each call site, because a password
+        // is set in three places — registration, accepting an invitation, and a
+        // reset — and all three already run every registered validator. One of
+        // them forgetting is how a policy ends up applying to two paths
+        // out of three.
+        services.AddScoped<
+            IPasswordValidator<ApplicationUser>, Settings.TenantPasswordValidator>();
 
 
         return services;
