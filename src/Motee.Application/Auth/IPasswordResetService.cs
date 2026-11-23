@@ -20,4 +20,10 @@ public enum PasswordResetOutcome
     LockedOut,
     AlreadyUsed,
     WeakPassword,
+
+    // Refused by the company's reuse policy. Distinct from WeakPassword
+    // because the password may be perfectly strong, and "choose a stronger
+    // one" is advice somebody cannot act on when the real problem is that they
+    // have used it before.
+    PreviouslyUsed,
 }

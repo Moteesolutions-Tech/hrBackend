@@ -10,7 +10,25 @@ public sealed record TenantSettings
 
     public StructureType StructureType { get; init; } = StructureType.Hierarchical;
 
+    // Which parts of the product this company has switched on, as
+    // FeatureCatalogue ids. Written by the onboarding wizard's module picker
+    // and by the settings panel, and — since the features work went in — read
+    // by the permission check, so switching one off actually closes its
+    // endpoints. Before that nothing read this at all.
     public IReadOnlyList<string> EnabledModules { get; init; } = [];
+
+    // Enabled but kept out of the sidebar. Presentation, never a gate: a
+    // feature can be switched on and tucked away, but one that is switched off
+    // is always hidden, or the sidebar offers a link to endpoints that refuse.
+    public IReadOnlyList<string> HiddenModules { get; init; } = [];
+
+    // What this company requires of a password, and how long a session lasts.
+    //
+    // Per tenant rather than per deployment, which is what the security screen
+    // has always implied. Identity's options are configured once at start-up for
+    // the whole process, so the policy is applied by a validator that reads
+    // this instead.
+    public Settings.PasswordPolicy PasswordPolicy { get; init; } = new();
 
     // The company's own clock, as an IANA zone — "Africa/Lagos", "Europe/London".
     //

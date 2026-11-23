@@ -6,6 +6,7 @@ using Motee.Application.Organisation;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Infrastructure.Persistence;
+using Motee.Tests.Alerts;
 
 namespace Motee.Tests.Integration;
 
@@ -18,6 +19,21 @@ namespace Motee.Tests.Integration;
 [Collection(PostgresCollection.Name)]
 public class LeaveBlackoutTests(PostgresFixture fixture)
 {
+    // Pinned, because every range here is measured from "today" and the
+    // seeded annual policy accrues monthly — so an unpinned clock makes the
+    // outcome depend on the date the suite happens to run. Soon(50) landed in
+    // the next leave year once the calendar reached mid-November, where
+    // nothing has accrued yet, and a booking the test calls fine was refused
+    // for an insufficient balance. September keeps the whole window inside one
+    // leave year with most of the entitlement accrued.
+    //
+    // The same hazard the public-holiday removal below was already guarding
+    // against, one step further out.
+    private static readonly DateOnly Pinned = new(2026, 9, 1);
+
+    private readonly MovableClock _clock = new(
+        new DateTimeOffset(Pinned.ToDateTime(new TimeOnly(8, 0)), TimeSpan.Zero));
+
     private Guid _tenantId;
     private Guid _employeeId;
     private Guid _annualTypeId;
@@ -43,7 +59,9 @@ public class LeaveBlackoutTests(PostgresFixture fixture)
 
         _tenantId = registration.TenantId;
 
-        ServiceProvider provider = fixture.BuildProvider();
+        ServiceProvider provider = fixture.BuildProvider(
+            services => services.AddSingleton<TimeProvider>(_clock));
+
         provider.GetRequiredService<PostgresFixture.MutableTenant>().TenantId = _tenantId;
 
         _departmentId = (await Resolve<IDepartmentService>(provider)
@@ -91,9 +109,10 @@ public class LeaveBlackoutTests(PostgresFixture fixture)
     private static T Resolve<T>(ServiceProvider provider) where T : notnull =>
         provider.CreateScope().ServiceProvider.GetRequiredService<T>();
 
-    // Well clear of the seeded 14-day notice rule.
-    private static DateOnly Soon(int addDays) =>
-        DateOnly.FromDateTime(DateTime.UtcNow.AddDays(addDays));
+    // Well clear of the seeded 14-day notice rule. Counted from the pinned
+    // day rather than from UtcNow, so the dates and the clock the service
+    // judges them against are the same one.
+    private static DateOnly Soon(int addDays) => Pinned.AddDays(addDays);
 
     private Task<LeaveBlackoutResult> BlackoutAsync(
         ServiceProvider provider,

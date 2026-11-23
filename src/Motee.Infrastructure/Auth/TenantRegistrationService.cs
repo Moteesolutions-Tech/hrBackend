@@ -27,6 +27,7 @@ internal sealed class TenantRegistrationService(
     Organisation.EmploymentTypeSeeder employmentTypes,
     Benefits.BenefitPlanSeeder benefitPlans,
     Checklists.ChecklistSeeder checklist,
+    Workflows.WorkflowSeeder workflows,
     IEmailDispatcher email,
     AppLinks links,
     IMemoryCache noticeCache,
@@ -131,6 +132,12 @@ internal sealed class TenantRegistrationService(
                 LastName = request.LastName.Trim(),
                 Email = request.Email.Trim(),
                 CreatedAt = DateTimeOffset.UtcNow,
+
+                // Stamped at creation so the company's expiry policy has
+                // something to measure from. Without it the first password
+                // anybody sets never expires, however long the policy says.
+                PasswordChangedAt = DateTimeOffset.UtcNow,
+
                 // Stays false until the OTP is verified.
                 EmailConfirmed = false,
             };
@@ -199,6 +206,18 @@ internal sealed class TenantRegistrationService(
             // same job everywhere, and what differs — the statutory documents
             // — is the joiner pack's business rather than this template's.
             checklist.Seed(tenant.Id);
+
+            // Recruitment, preboarding, onboarding and offboarding, as
+            // workflows the product fires itself. Seeded after the access
+            // levels, because the tasks name the function that does the work
+            // rather than a person, and a level that is not there yet leaves
+            // the task pointing at nobody.
+            //
+            // Awaited rather than queued: these are the flows the recruitment
+            // and onboarding screens trigger, so a company whose first hire
+            // lands before the seeding finished would get a hire with no
+            // workflow behind it.
+            await workflows.SeedAsync(tenant.Id, levels, cancellationToken);
 
             // The owner, and deliberately nothing else.
             //

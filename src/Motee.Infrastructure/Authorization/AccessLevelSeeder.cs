@@ -4,9 +4,15 @@ using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Authorization;
 
-// The levels a new tenant starts with. Seven, not eighteen: a company with a screen
+// The levels a new tenant starts with. Nine, not eighteen: a company with a screen
 // full of levels nobody holds cannot tell which ones matter, and anything niche is
 // two minutes' work from a duplicate of the closest one.
+//
+// IT and Executive are here because the product's own seeded workflows assign work
+// to both — account activation and asset recovery to IT, offer approval to an
+// executive. Those flows cannot be edited, so a function with no level to land on
+// would leave that work assigned to nobody with no way to fix it. They are not
+// niche; they are load-bearing.
 //
 // These are a starting point, not a fixed set. A tenant renames, edits, deactivates
 // and adds to them freely — TemplateSlug survives all of that, which is what keeps
@@ -31,6 +37,12 @@ internal sealed class AccessLevelSeeder(MoteeDbContext dbContext, TimeProvider t
 
         (Role.Recruiter, "Recruiter",
             "The hiring pipeline and headcount, without access to existing staff records."),
+
+        (Role.ItAdmin, "IT Admin",
+            "Accounts, equipment and system access. Not people data."),
+
+        (Role.Executive, "Executive",
+            "Sees the whole organisation and signs off offers and compensation."),
 
         (Role.ReadOnly, "Read-only",
             "Sees everything, changes nothing. What an auditor is usually given."),

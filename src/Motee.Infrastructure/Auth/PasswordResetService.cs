@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Motee.Application.Auth;
 using Motee.Domain.Auth;
+using Motee.Domain.Settings;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
@@ -13,6 +14,7 @@ internal sealed class PasswordResetService(
     UserManager<ApplicationUser> userManager,
     IOtpService otpService,
     IRefreshTokenService refreshTokens,
+    TimeProvider timeProvider,
     ILogger<PasswordResetService> logger) : IPasswordResetService
 {
     public async Task RequestAsync(string email, CancellationToken cancellationToken = default)
@@ -68,11 +70,24 @@ internal sealed class PasswordResetService(
 
             if (!validation.Succeeded)
             {
-                return PasswordResetOutcome.WeakPassword;
+                // Reuse reported distinctly. The password may be perfectly
+                // strong, and "choose a stronger one" is advice somebody cannot
+                // act on when the real problem is that they have used it before.
+                return validation.Errors.Any(error =>
+                    error.Code == Settings.TenantPasswordValidator.PreviouslyUsedCode)
+                    ? PasswordResetOutcome.PreviouslyUsed
+                    : PasswordResetOutcome.WeakPassword;
             }
         }
 
+        // The outgoing hash is kept before it is overwritten, where the
+        // company's policy forbids reuse. Written here rather than by the
+        // validator, which only ever reads: a validator that wrote would record
+        // a password on every failed attempt at setting one.
+        await RememberAsync(user, cancellationToken);
+
         user.PasswordHash = userManager.PasswordHasher.HashPassword(user, newPassword);
+        user.PasswordChangedAt = timeProvider.GetUtcNow();
 
         // Rotates the security stamp and persists both changes. Outstanding OTP codes
         // derive from that stamp, so any still in flight stop working.
@@ -96,6 +111,62 @@ internal sealed class PasswordResetService(
         }
 
         return PasswordResetOutcome.Succeeded;
+    }
+
+    // Keeps the password being replaced, and trims the history to the depth the
+    // company's policy asks for. With the policy off nothing is written and
+    // anything previously written is removed: a table of everybody's old
+    // password hashes that no rule reads is a liability with no purpose.
+    private async Task RememberAsync(ApplicationUser user, CancellationToken cancellationToken)
+    {
+        PasswordPolicy policy = PasswordPolicy.Default;
+
+        if (user.TenantId is Guid tenantId)
+        {
+            Domain.Tenants.TenantSettings? settings = await dbContext.Tenants
+                .AsNoTracking()
+                .Where(tenant => tenant.Id == tenantId)
+                .Select(tenant => tenant.Settings)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            policy = settings?.PasswordPolicy ?? PasswordPolicy.Default;
+        }
+
+        // One fewer row than the policy forbids. The password being set now is
+        // the one in users.password_hash, and the validator checks that
+        // separately — so a policy of five is this table's four plus the
+        // current one. Keeping five here would forbid six.
+        int rows = Math.Max(0, PasswordRules.HistoryDepth(policy) - 1);
+
+        List<PasswordHistoryEntry> kept = await dbContext.PasswordHistory
+            .Where(entry => entry.UserId == user.Id)
+            .OrderByDescending(entry => entry.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        if (rows == 0)
+        {
+            // Either no reuse policy, or one that forbids only the password
+            // being replaced. Neither needs a row, and anything previously
+            // written goes: a table of old password hashes that no rule reads
+            // is a liability with no purpose.
+            dbContext.PasswordHistory.RemoveRange(kept);
+            return;
+        }
+
+        if (user.PasswordHash is string outgoing)
+        {
+            dbContext.PasswordHistory.Add(new PasswordHistoryEntry
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                PasswordHash = outgoing,
+                CreatedAt = timeProvider.GetUtcNow(),
+            });
+        }
+
+        // The entry just added takes the newest place, so one fewer of the old
+        // ones survives.
+        dbContext.PasswordHistory.RemoveRange(kept.Skip(rows - 1));
     }
 
     private Task<ApplicationUser?> FindAsync(string email, CancellationToken cancellationToken)

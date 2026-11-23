@@ -21,6 +21,12 @@ public enum LoginOutcome
     InvalidCredentials,
     EmailNotConfirmed,
     LockedOut,
+
+    // The password is right and the company's policy says it has lapsed. The
+    // way back is the forgot-password flow, which is why this is reported
+    // distinctly rather than as bad credentials — somebody told their password
+    // is wrong will try it again.
+    PasswordExpired,
 }
 
 public sealed record LoginResult

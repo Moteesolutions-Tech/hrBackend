@@ -9,9 +9,11 @@ using Motee.Api.Contracts;
 using Motee.Api.Contracts.Auth;
 using Motee.Application.Auth;
 using Motee.Application.Common;
+using Motee.Application.Settings;
 using Motee.Domain.Auth;
 using Motee.Application.Tenancy;
 using Motee.Domain.Authorization;
+using Motee.Domain.Settings;
 using Motee.Domain.Tenants;
 
 namespace Motee.Api.Controllers;
@@ -35,6 +37,7 @@ public class AuthController(
     IPasswordResetService passwordReset,
     ISessionIssuer sessionIssuer,
     IUserPermissions userPermissions,
+    IEnabledFeatures enabledFeatures,
     ICurrentTenant currentTenant,
     ITenantRepository tenants,
     IRequestContext requestContext,
@@ -221,6 +224,15 @@ public class AuthController(
                 return Failure<LoginResponse>(
                     MoteeStatusCodes.TooManyRequests, "Too many failed attempts. Try again later.");
 
+            // Said plainly, and with the way out. Reporting it as bad
+            // credentials would send somebody who typed their password
+            // correctly round the same loop typing it again.
+            case LoginOutcome.PasswordExpired:
+                return Failure<LoginResponse>(
+                    MoteeStatusCodes.Unauthorized,
+                    "Your password has expired under your company's policy. "
+                    + "Use \"Forgot password\" to set a new one.");
+
             default:
                 return Failure<LoginResponse>(
                     MoteeStatusCodes.Unauthorized, "Incorrect email or password.");
@@ -271,6 +283,10 @@ public class AuthController(
                 Failure<object?>(MoteeStatusCodes.OtpAlreadyUsed, "That code has already been used."),
             PasswordResetOutcome.WeakPassword =>
                 Failure<object?>(MoteeStatusCodes.InvalidRequest, "That password is not acceptable."),
+            PasswordResetOutcome.PreviouslyUsed =>
+                Failure<object?>(
+                    MoteeStatusCodes.InvalidRequest,
+                    "You have used that password before. Choose one you have not used."),
             _ => Failure<object?>(MoteeStatusCodes.OtpIncorrect, "That code is not correct."),
         };
     }
@@ -339,6 +355,12 @@ public class AuthController(
             ? await userPermissions.ForAsync(userId, cancellationToken)
             : ResolvedPermissions.None;
 
+        // Which parts of the product this company has. The permission check
+        // applies the same state, so a module filtered out here is one whose
+        // endpoints refuse — which is what keeps the sidebar from offering a
+        // link to a 403.
+        FeatureState features = await enabledFeatures.CurrentAsync(cancellationToken);
+
         return Ok(new CurrentUserResponse
         {
             UserId = Claim(MoteeClaimTypes.Subject) ?? string.Empty,
@@ -358,8 +380,18 @@ public class AuthController(
             // them on the strength of an empty matrix.
             IsOwner = held.IsOwner,
 
-            Permissions = held.Permissions.Modules,
+            // Filtered by what this company has switched on. An unfiltered
+            // matrix would grant the UI a module whose endpoints refuse, and
+            // the screen would render with every action failing rather than
+            // not appearing.
+            Permissions =
+            [
+                .. held.Permissions.Modules.Where(module => features.Allows(module.Module)),
+            ],
             Scope = held.Permissions.Scope,
+
+            EnabledModules = [.. FeatureCatalogue.Ids.Where(features.Enabled.Contains)],
+            SidebarModules = [.. FeatureCatalogue.Ids.Where(features.ShowsInSidebar)],
         });
     }
 }

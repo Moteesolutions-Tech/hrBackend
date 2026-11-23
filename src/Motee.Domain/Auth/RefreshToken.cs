@@ -21,4 +21,9 @@ public class RefreshToken
     public Guid? ReplacedByTokenId { get; set; }
 
     public string? CreatedByIp { get; set; }
+
+    // What the security screen names the device with. Without it every row in
+    // the trusted-devices list reads as the same unnamed device, which is no
+    // help to somebody trying to spot the one that is not theirs.
+    public string? CreatedByUserAgent { get; set; }
 }

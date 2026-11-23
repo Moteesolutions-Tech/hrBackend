@@ -112,5 +112,17 @@ public sealed record CurrentUserResponse
     // How far those permissions reach — the narrowest of the held levels. The matrix
     // says which modules open; this says whose records come back.
     public required DataScope Scope { get; init; }
+
+    // The features this company has switched on, and which of them belong in the
+    // sidebar.
+    //
+    // Sent alongside the matrix because the two answer different questions and the
+    // client needs both: the matrix says what this person may do, these say what this
+    // company has. A module is reachable only where both agree, and the permission
+    // check applies the same rule — so the sidebar cannot offer a link to an endpoint
+    // that refuses.
+    public required IReadOnlyList<string> EnabledModules { get; init; }
+
+    public required IReadOnlyList<string> SidebarModules { get; init; }
 }
 

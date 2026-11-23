@@ -14,7 +14,9 @@ public class BranchesController(IBranchService branches) : ApiControllerBase
 {
     // Sites sit under the structure module alongside departments and business units:
     // they are the third axis of the same org chart, configured by the same people.
-    private const string Module = "organization.structure";
+    // Its own grant. Sharing structure's got both wrong: it let line managers
+    // edit sites and kept facilities out of them.
+    private const string Module = "organization.branches";
 
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<BranchDto>>(StatusCodes.Status200OK)]

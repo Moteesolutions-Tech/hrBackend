@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Notifications;
+using Motee.Application.Settings;
 using Motee.Domain.Notifications;
 using Motee.Infrastructure.Persistence;
 
@@ -9,6 +10,7 @@ namespace Motee.Infrastructure.Notifications;
 internal sealed class NotificationService(
     MoteeDbContext dbContext,
     IRequestContext requestContext,
+    INotificationPreferenceService preferences,
     TimeProvider timeProvider) : INotificationService
 {
     public async Task<IReadOnlyList<NotificationDto>> MineAsync(
@@ -105,6 +107,20 @@ internal sealed class NotificationService(
         RaiseNotificationRequest request,
         CancellationToken cancellationToken = default)
     {
+        // Asked before anything is written, which is what makes the switches on
+        // the notifications panel real. Somebody who has never opened that
+        // panel hears everything — absent preferences mean the defaults, not
+        // silence.
+        //
+        // Returns false, the same answer as "they already had this one": from
+        // the caller's side both mean nothing new was raised, so a sweep that
+        // emails alongside a new notification does not email about one the
+        // person asked not to hear.
+        if (!await preferences.AllowsAsync(request.UserId, request.Kind, cancellationToken))
+        {
+            return false;
+        }
+
         // Checked against every notification of that kind about that subject for
         // that person, dismissed ones included. A sweep that re-raised something
         // somebody had put away would make dismissing meaningless for exactly the

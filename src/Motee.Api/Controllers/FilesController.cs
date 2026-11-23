@@ -93,7 +93,10 @@ public class FilesController(IFileUploadService files) : ApiControllerBase
 
     // Above the largest purpose limit, so an oversized upload is refused by the
     // policy with a useful message rather than by the server dropping the request.
-    private const int MaxRequestBytes = 25 * 1024 * 1024;
+    // That limit is 50 MB — a company document or a project document — and this
+    // sat at 25, which dropped a legitimate handbook mid-upload with nothing on
+    // screen to explain it.
+    private const long MaxRequestBytes = 60L * 1024 * 1024;
 
     private static string StatusFor(FileRejection rejection) => rejection switch
     {
