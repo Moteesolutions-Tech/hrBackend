@@ -46,9 +46,17 @@ public class CompanyController(
     // rather than one. The screen renders from a single root, so a company with
     // two people at the top loses half its chart — and a reporting line that
     // loops recurses until the browser gives up.
+    //
+    // Self-service rather than gated on organization.structure. There is an
+    // employee route for this — company/org-chart — and an employee does not
+    // hold that grant, so gating it there made the chart unreachable by the
+    // people it is mostly for. Nothing here is private either: a name, a job
+    // title, a department and who somebody reports to are all on the staff
+    // directory already, and withholding the shape of the company from the
+    // people inside it protects nothing.
     [HttpGet("org-chart")]
     [ProducesResponseType<OrgChartView>(StatusCodes.Status200OK)]
-    [RequiresPermission("organization.structure", PermissionAction.View)]
+    [RequiresEmployee]
     public async Task<IActionResult> OrgChart(
         [FromQuery] int? maxLevel,
         CancellationToken cancellationToken) =>

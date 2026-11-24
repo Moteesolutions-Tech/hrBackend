@@ -38,6 +38,7 @@ using Motee.Domain.Organisation;
 using Motee.Domain.Performance;
 using Motee.Domain.Diversity;
 using Motee.Domain.Headcount;
+using Motee.Domain.Health;
 using Motee.Domain.Helpdesk;
 using Motee.Domain.Recognition;
 using Motee.Domain.Recruitment;
@@ -66,6 +67,14 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<PickListOption> PickListOptions => Set<PickListOption>();
 
     public DbSet<CompanyVerification> CompanyVerifications => Set<CompanyVerification>();
+
+    public DbSet<EmployeeNote> EmployeeNotes => Set<EmployeeNote>();
+
+    public DbSet<ShiftAssignment> ShiftAssignments => Set<ShiftAssignment>();
+
+    public DbSet<OhReferral> OhReferrals => Set<OhReferral>();
+
+    public DbSet<OhAdjustment> OhAdjustments => Set<OhAdjustment>();
 
     public DbSet<EorProvider> EorProviders => Set<EorProvider>();
 

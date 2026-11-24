@@ -4,6 +4,7 @@ using Motee.Application.Notifications;
 using Motee.Application.Tenancy;
 using Motee.Domain.Authorization;
 using Motee.Domain.Contracts;
+using Motee.Domain.Employees;
 using Motee.Domain.Notifications;
 using Motee.Infrastructure.Common;
 using Motee.Infrastructure.Persistence;
@@ -176,6 +177,55 @@ public sealed class ExpirySweepJob(
                     ? 1
                     : 0;
             }
+        }
+
+        // ── note reminders ──────────────────────────────────────────────────
+
+        // Addressed to whoever set the reminder rather than to everybody
+        // holding the module. "Remind me to follow this up" is a note to
+        // oneself, and sending it to the whole HR team would make people stop
+        // setting them.
+        List<EmployeeNote> reminders = await dbContext.EmployeeNotes
+            .Where(note => note.Kind == NoteKind.Reminder
+                && note.RemindedAt == null
+                && note.RemindAt != null
+                && note.RemindAt <= today
+                && note.AuthorUserId != null)
+            .ToListAsync(cancellationToken);
+
+        if (reminders.Count > 0)
+        {
+            Dictionary<Guid, string> about = await NamesAsync(
+                [.. reminders.Select(note => note.EmployeeId)], cancellationToken);
+
+            foreach (EmployeeNote note in reminders)
+            {
+                bool told = await notifications.RaiseAsync(
+                    new RaiseNotificationRequest
+                    {
+                        TenantId = tenantId,
+                        UserId = note.AuthorUserId!.Value,
+                        Kind = NotificationKind.NoteReminderDue,
+                        Severity = NotificationSeverity.Info,
+                        Title = "Reminder",
+                        Body =
+                            $"You asked to be reminded about "
+                            + $"{about.GetValueOrDefault(note.EmployeeId) ?? "an employee"}.",
+                        Href = $"/organization/employees/{note.EmployeeId}",
+                        SubjectType = "employee-note",
+                        SubjectId = note.Id,
+                    },
+                    cancellationToken);
+
+                // Stamped whether or not a notification was written. A person
+                // who has silenced reminders should not have the sweep retry
+                // theirs every night for ever.
+                note.RemindedAt = timeProvider.GetUtcNow();
+
+                raised += told ? 1 : 0;
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
 
         return raised;

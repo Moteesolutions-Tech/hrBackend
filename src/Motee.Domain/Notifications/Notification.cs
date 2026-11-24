@@ -27,6 +27,12 @@ public enum NotificationKind
     // Clocked in and never out. The day keeps accruing hours against the clock
     // until somebody corrects it.
     OpenClockSession,
+
+    // An HR note somebody set a reminder date on. Addressed to whoever wrote
+    // it rather than to everybody holding the module: "remind me to follow this
+    // up" is a note to oneself, and sending it to the whole HR team would make
+    // people stop setting them.
+    NoteReminderDue,
 }
 
 // How it reads, which is the icon and colour the client picks.

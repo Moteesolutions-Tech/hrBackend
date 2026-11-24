@@ -13,7 +13,10 @@ public class DefaultAccessLevelsTests
     {
         // A literal count, so adding a module to the catalogue makes somebody look
         // here rather than silently shipping one no role can reach.
-        Assert.Equal(51, ModuleCatalogue.All.Count);
+        //
+        // 51 to 54: occupational health and shifts, which had no key at all, and
+        // workforce-lens, whose screen existed with no way to grant it.
+        Assert.Equal(54, ModuleCatalogue.All.Count);
 
         // The check that actually matters: a module with no entry here is one the
         // permission handler denies to everybody except the owner, which presents

@@ -79,6 +79,18 @@ public static class NotificationGroups
             Label = "Performance",
             Kinds = [NotificationKind.ReviewOverdue, NotificationKind.GoalOverdue],
         },
+
+        // Its own group rather than folded into another, because this is the
+        // one kind somebody asked for personally. Burying a reminder you set
+        // yourself inside a group you silenced for other reasons is how a
+        // reminder goes missing.
+        new()
+        {
+            Key = "reminders",
+            Label = "My Reminders",
+            Kinds = [NotificationKind.NoteReminderDue],
+            EmailByDefault = true,
+        },
     ];
 
     private static readonly IReadOnlyDictionary<NotificationKind, string> GroupByKind =

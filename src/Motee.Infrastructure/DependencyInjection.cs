@@ -185,6 +185,11 @@ public static class DependencyInjection
         services.AddScoped<
             Application.Settings.ISecuritySettingsService, Settings.SecuritySettingsService>();
 
+        services.AddScoped<Application.Health.IOhService, Health.OhService>();
+        services.AddScoped<
+            Application.Employees.IEmployeeNoteService, Employees.EmployeeNoteService>();
+        services.AddScoped<
+            Application.Attendance.IShiftService, Attendance.ShiftService>();
         services.AddScoped<
             Application.Company.ICompanyService, Company.CompanyService>();
         services.AddScoped<

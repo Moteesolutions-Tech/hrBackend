@@ -35,6 +35,23 @@ public static class AuditPolicy
         "EmployeeBankDetails",
         "EmployeeIdentityDocument",
         "EmployeeIdentityDocuments",
+
+        // Carries the absence reason and the protected category. Missing from
+        // this list until now, which meant an entry reading "SicknessReason
+        // changed from Stress to MentalHealth" was written into a table gated
+        // by admin.audit-trail and not by employee.medical — the exact
+        // reproduction of special-category data this list exists to prevent.
+        "SicknessRecord",
+
+        // The case notes. Labelled administrative, and free text is where a
+        // diagnosis arrives however the field is labelled — so the fact of a
+        // change is auditable and the content is not.
+        "OhReferral",
+
+        // The recommendation itself: "phased return", "no lifting". Not a
+        // diagnosis, but close enough to one that it does not belong in a
+        // table read under a different permission.
+        "OhAdjustment",
     };
 
     // Bookkeeping, not decisions. Services stamp UpdatedAt on every save, so including
@@ -86,6 +103,8 @@ public static class AuditPolicy
         ["Tenant"] = "organization.company",
         ["ExportJob"] = "operations.reports",
         ["StoredFile"] = "operations.documents",
+        ["OhReferral"] = "time-payroll.occupational-health",
+        ["OhAdjustment"] = "time-payroll.occupational-health",
     };
 
     public static bool IsAudited(string entityType) => !Ignored.Contains(entityType);
