@@ -17,4 +17,23 @@ public sealed class NigeriaProfile : ICountryProfile
     public string TimeZoneId => "Africa/Lagos";
 
     public bool UsesPayeStarterRecords => false;
+
+    public CompanyIdentifier Registration => new()
+    {
+        Label = "Company Registration",
+        NumberLabel = "RC Number",
+        Authority = "Corporate Affairs Commission",
+        Description =
+            "Your certificate of incorporation from the Corporate Affairs Commission, "
+            + "carrying the RC number.",
+    };
+
+    public CompanyIdentifier TaxIdentifier => new()
+    {
+        Label = "Tax Identification",
+        NumberLabel = "TIN",
+        Authority = "Federal Inland Revenue Service",
+        Description =
+            "Your Taxpayer Identification Number from the Federal Inland Revenue Service.",
+    };
 }

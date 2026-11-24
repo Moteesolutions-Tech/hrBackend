@@ -85,8 +85,7 @@ public static class TimesheetLifecycle
         // deleting: the person fixes their week and hands it in again.
         [TimesheetStatus.Rejected] = [TimesheetAction.Submit],
 
-        // Terminal. Reopening an approved week is a correction to the days inside it,
-        // which has its own path — not a button that quietly unapproves somebody's pay.
+
         [TimesheetStatus.Approved] = [],
     };
 

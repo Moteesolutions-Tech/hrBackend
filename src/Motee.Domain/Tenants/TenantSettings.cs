@@ -30,6 +30,20 @@ public sealed record TenantSettings
     // this instead.
     public Settings.PasswordPolicy PasswordPolicy { get; init; } = new();
 
+    // The registered name, where it differs from what the company trades as.
+    // "Acme Technologies Limited" on the certificate, "Acme" everywhere else —
+    // and the verification is against the registered one.
+    public string? LegalName { get; init; }
+
+    public string? Website { get; init; }
+
+    public string? ContactPhone { get; init; }
+
+    // Where staff and candidates write in, as distinct from BillingEmail, which
+    // is where invoices go. The company profile screen asks for one contact
+    // address and the two are not the same thing.
+    public string? SupportEmail { get; init; }
+
     // The company's own clock, as an IANA zone — "Africa/Lagos", "Europe/London".
     //
     // Attendance needs it and nothing else does yet. A punch belongs to a calendar

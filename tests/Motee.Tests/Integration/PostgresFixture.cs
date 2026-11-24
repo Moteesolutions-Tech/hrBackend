@@ -253,6 +253,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             + "courses, "
             + "pick_list_options, notification_preferences, password_history, "
             + "eor_invoices, eor_compliance_items, eor_engagements, eor_providers, "
+            + "company_verifications, "
             + "notifications, expense_claims, contract_notes, contract_signatures, contracts, "
             + "document_acknowledgements, document_shares, document_versions, "
             + "hr_documents, document_folders, "
