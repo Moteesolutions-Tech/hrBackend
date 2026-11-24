@@ -30,6 +30,15 @@ public enum FilePurpose
     // case's confidentiality level allows.
     CaseEvidence,
 
+    // A certificate of incorporation or a tax registration letter, attached to
+    // the company's verification.
+    //
+    // Its own purpose rather than a company document, because of who reads it:
+    // Motee staff have to be able to open it to verify anything, and nothing
+    // else in the filing is readable from outside the tenant. Keeping it
+    // separate means that exception is one purpose wide.
+    CompanyVerificationDocument,
+
     Export,
 }
 
@@ -101,6 +110,15 @@ public static class FilePolicy
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 .. Images,
             ],
+        },
+
+        // A certificate scanned or photographed. Small, because it is one or
+        // two pages — and a tighter ceiling than the rest of the filing is
+        // right for the one purpose readable from outside the company.
+        [FilePurpose.CompanyVerificationDocument] = new()
+        {
+            MaxBytes = 10 * Mb,
+            ContentTypes = ["application/pdf", .. Images],
         },
 
         // The same shapes as an employee document, because it is the same kind of thing:

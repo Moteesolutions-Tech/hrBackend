@@ -185,6 +185,12 @@ public static class DependencyInjection
         services.AddScoped<
             Application.Settings.ISecuritySettingsService, Settings.SecuritySettingsService>();
 
+        services.AddScoped<
+            Application.Company.ICompanyService, Company.CompanyService>();
+        services.AddScoped<
+            Application.Company.ICompanyVerificationService,
+            Company.CompanyVerificationService>();
+
         // Registered concretely as well as behind its interface: the compliance
         // service needs its shared describe helper rather than the published
         // contract, and two places deriving the same compliance standing is how

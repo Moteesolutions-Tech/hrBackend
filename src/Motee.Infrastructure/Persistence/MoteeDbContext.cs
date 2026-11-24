@@ -9,6 +9,7 @@ using Motee.Domain.Auth;
 using Motee.Domain.Benefits;
 using Motee.Domain.Common;
 using Motee.Domain.Community;
+using Motee.Domain.Company;
 using Motee.Domain.Learning;
 using Motee.Domain.Projects;
 using Motee.Domain.Relations;
@@ -63,6 +64,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
     public DbSet<PasswordHistoryEntry> PasswordHistory => Set<PasswordHistoryEntry>();
 
     public DbSet<PickListOption> PickListOptions => Set<PickListOption>();
+
+    public DbSet<CompanyVerification> CompanyVerifications => Set<CompanyVerification>();
 
     public DbSet<EorProvider> EorProviders => Set<EorProvider>();
 
