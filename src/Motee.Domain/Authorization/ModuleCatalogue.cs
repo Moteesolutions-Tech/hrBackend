@@ -39,10 +39,17 @@ public static class ModuleCatalogue
         "time-payroll.attendance",
         "time-payroll.leave",
         "time-payroll.sickness",
+        "time-payroll.occupational-health",
+        "time-payroll.shifts",
         "time-payroll.expenses",
         "operations.assets",
         "operations.documents",
         "operations.contracts",
+        // No endpoints of its own, like analytics. Requesting an export happens
+        // on the controller that owns the data, gated by that module; retrieving
+        // your own finished export is self-service, and ExportService scopes it
+        // to the account that asked for it. The key exists so HR can grant the
+        // reports screen at all.
         "operations.reports",
 
         // Analytics has no endpoints of its own: every figure on it is a
@@ -52,6 +59,14 @@ public static class ModuleCatalogue
         "operations.analytics",
 
         "operations.workforce",
+
+        // Like analytics, a projection: the lens pivots employees and
+        // diversity declarations and serves nothing of its own. The key exists
+        // because without it HR cannot grant the screen at all — it was
+        // missing entirely, so the route was unreachable by anybody but the
+        // account owner.
+        "organization.workforce-lens",
+
         "workspace.announcements",
         "workspace.calendar",
         "workspace.kudos",
@@ -125,6 +140,25 @@ public static class ModuleCatalogue
             // module and withholding the reason is the whole §10.8 design.
             ["time-payroll.sickness"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
 
+            // The same roles as sickness, and for the same reason: a line
+            // manager has to be able to see that somebody is under referral and
+            // what adjustments were agreed, because they are the person who has
+            // to deliver them.
+            //
+            // What the module does not carry for them is the case notes or the
+            // absence reason — that follows the data scope, exactly as it does
+            // on sickness, and the manager view is a shape with nowhere to put
+            // either. Read-only is present because an auditor asking "was the
+            // referral made on time" is the question this register answers.
+            ["time-payroll.occupational-health"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Auditor, Role.ReadOnly],
+
+            // The same roles as attendance, because a rota is an attendance
+            // decision: whoever judges lateness is whoever decides which hours
+            // somebody was meant to work. Finance is here for the same reason
+            // it is on attendance — rostered hours are what a shift premium is
+            // calculated from.
+            ["time-payroll.shifts"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.LineManager, Role.Finance, Role.Auditor, Role.ReadOnly],
+
             // Finance holds this one, unlike leave: the last step of an expense
             // chain is the pay-out, and whoever pays has to be able to see what
             // they are paying. Line managers validate their own team's claims
@@ -136,6 +170,13 @@ public static class ModuleCatalogue
             ["operations.reports"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["operations.analytics"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.Executive, Role.Auditor, Role.ReadOnly],
             ["operations.workforce"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Recruiter, Role.Executive, Role.Auditor, Role.ReadOnly],
+
+            // Narrower than the workforce screen it sits beside. The lens
+            // groups people by diversity dimensions, and the suppression
+            // threshold is what keeps a group of two from identifying
+            // somebody — a protection that only works if the audience is
+            // small to begin with.
+            ["organization.workforce-lens"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Executive, Role.Auditor],
             ["workspace.announcements"] = [Role.SuperAdmin, Role.HrAdmin, Role.HrManager, Role.Finance, Role.LineManager, Role.Recruiter, Role.ItAdmin, Role.Auditor, Role.ReadOnly],
 
             // Narrower than it first looks. Reading the calendar and putting
