@@ -7,6 +7,7 @@ using Motee.Application.Tenancy;
 using Motee.Application.Work;
 using Motee.Domain.Approvals;
 using Motee.Domain.Attendance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Common;
 using Motee.Domain.Documents;
 using Motee.Domain.Employees;
@@ -1430,6 +1431,15 @@ internal sealed class DashboardService(
                 AsAt = today,
                 PageSize = PagedQuery.MaxPageSize,
             },
+
+            // Unnarrowed, and that is a known gap rather than a decision: the
+            // dashboards do not resolve a data scope at all yet, so a
+            // department-scoped HR user's untaken-leave panel still counts the whole
+            // company. Scoping them means resolving a scope per panel against each
+            // panel's own module, the way ReportService does, which is its own piece
+            // of work. Written out here so it is visible rather than implied by a
+            // missing argument.
+            Viewer.Everything,
             cancellationToken);
 
         List<UntakenLeaveRowDto> atRisk =

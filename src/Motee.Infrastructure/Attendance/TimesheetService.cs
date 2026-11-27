@@ -3,6 +3,7 @@ using Motee.Application.Attendance;
 using Motee.Application.Common;
 using Motee.Application.Tenancy;
 using Motee.Domain.Attendance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
 
@@ -14,6 +15,7 @@ internal sealed class TimesheetService(
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : ITimesheetService
 {
     public async Task<TimesheetDto?> MineAsync(
@@ -104,9 +106,18 @@ internal sealed class TimesheetService(
 
     public async Task<PagedResult<TimesheetDto>> ListAsync(
         TimesheetQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Timesheet> source = dbContext.Timesheets.AsNoTracking();
+
+        // Before the caller's own filters: reach is not something a filter can widen.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(sheet => reachable.Contains(sheet.EmployeeId));
+        }
 
         if (query.WeekStart is DateOnly week)
         {

@@ -26,7 +26,7 @@ public class LeaveController(
     public async Task<IActionResult> List(
         [FromQuery] LeaveRequestQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await requests.ListAsync(query, cancellationToken));
+        Ok(await requests.ListAsync(query, Caller(), cancellationToken));
 
     // The employee's own requests. No permission attribute: these are theirs, and
     // requiring the leave module would mean granting every member of staff the screen
@@ -42,7 +42,12 @@ public class LeaveController(
         Guid employeeId = (await currentEmployee.IdAsync(cancellationToken))!.Value;
 
         return Ok(await requests.ListAsync(
-            query with { EmployeeId = employeeId }, cancellationToken));
+            query with { EmployeeId = employeeId },
+
+            // Said twice on purpose: the filter above pins it to them, and this means
+            // the narrowing does not depend on that filter still being there.
+            Viewer.Themselves(employeeId),
+            cancellationToken));
     }
 
     [HttpGet("{id:guid}")]

@@ -64,7 +64,7 @@ public class PerformanceGoalsController(IPerformanceGoalService goals) : ApiCont
     public async Task<IActionResult> List(
         [FromQuery] GoalQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await goals.ListAsync(query, cancellationToken));
+        Ok(await goals.ListAsync(query, Caller(), cancellationToken));
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType<PerformanceGoalDto>(StatusCodes.Status200OK)]

@@ -4,6 +4,7 @@ using Motee.Application.Auth;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
 using Motee.Domain.Attendance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Organisation;
 using Motee.Infrastructure.Persistence;
@@ -184,7 +185,8 @@ public class TimesheetServiceTests(PostgresFixture fixture)
         Assert.NotNull(submitted.Timesheet.SubmittedAt);
 
         Assert.Single((await timesheets.ListAsync(
-            new TimesheetQuery { Status = TimesheetStatus.Submitted })).Items);
+            new TimesheetQuery { Status = TimesheetStatus.Submitted },
+            Viewer.Everything)).Items);
     }
 
     [SkippableFact]

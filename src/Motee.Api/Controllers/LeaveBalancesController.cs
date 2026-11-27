@@ -24,7 +24,7 @@ public class LeaveBalancesController(
     public async Task<IActionResult> List(
         [FromQuery] LeaveBalanceQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await balances.ListAsync(query, cancellationToken));
+        Ok(await balances.ListAsync(query, Caller(), cancellationToken));
 
     // The employee's own balance screen. Unguarded for the same reason as their own
     // requests: needing the leave module to see your own remaining days would mean

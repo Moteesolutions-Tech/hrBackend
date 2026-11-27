@@ -240,6 +240,10 @@ public static class DependencyInjection
         services.AddScoped<AvatarLinker>();
         services.AddScoped<IEmployeeService, EmployeeService>();
         services.AddScoped<IChangeRequestService, Employees.ChangeRequestService>();
+        // The one copy of "which employees does this scope reach", used by every
+        // register that narrows.
+        services.AddScoped<Authorization.EmployeeReach>();
+
         services.AddScoped<Reports.ReportRowProviders>();
         services.AddScoped<Application.Reports.IReportService, Reports.ReportService>();
         services.AddScoped<IEmployeeImportService, EmployeeImportService>();

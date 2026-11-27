@@ -112,7 +112,7 @@ public class AttendanceController(IAttendanceService attendance) : ApiController
     public async Task<IActionResult> List(
         [FromQuery] AttendanceQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await attendance.ListAsync(query, cancellationToken));
+        Ok(await attendance.ListAsync(query, Caller(), cancellationToken));
 
     // The figures above the overview: hours, overtime, and how the days fell out.
     // Computed from the same derivation as the rows, so a total and the list under it

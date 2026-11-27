@@ -490,19 +490,6 @@ public class EmployeesController(
                 .Kind != DataScopeKind.None;
     }
 
-    // Set by PermissionAuthorizationHandler when the check passed. Absent means the
-    // endpoint was reached without one, which must not read as unrestricted.
-    // The full reach the handler resolved, including the departments or business
-    // units a named scope covers. Absent means the endpoint was reached without a
-    // check, which must not read as unrestricted.
-    private DataScope GrantedScope() =>
-        HttpContext.Items[PermissionAuthorizationHandler.DataScopeItemKey] is DataScope scope
-            ? scope
-            : DataScope.Nothing;
-
-    private Guid? ViewerEmployeeId() =>
-        Guid.TryParse(User.FindFirst(MoteeClaimTypes.EmployeeId)?.Value, out Guid id) ? id : null;
-
     private static string StatusFor(IssueInviteOutcome outcome) => outcome switch
     {
         IssueInviteOutcome.EmployeeNotFound => MoteeStatusCodes.NotFound,

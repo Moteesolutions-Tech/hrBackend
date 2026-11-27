@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Performance;
 using Motee.Application.Tenancy;
+using Motee.Domain.Authorization;
 using Motee.Domain.Performance;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
@@ -13,6 +14,7 @@ internal sealed class PerformanceGoalService(
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IPerformanceGoalService
 {
     public async Task<IReadOnlyList<PerformanceGoalDto>> MineAsync(
@@ -39,12 +41,20 @@ internal sealed class PerformanceGoalService(
 
     public async Task<PagedResult<PerformanceGoalDto>> ListAsync(
         GoalQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<PerformanceGoal> source = Filter(
             dbContext.PerformanceGoals.AsNoTracking(),
             query,
             await TodayAsync(cancellationToken));
+
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(goal => reachable.Contains(goal.EmployeeId));
+        }
 
         int total = await source.CountAsync(cancellationToken);
 

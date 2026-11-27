@@ -1,5 +1,6 @@
 using Motee.Application.Approvals;
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Leave;
 
 namespace Motee.Application.Leave;
@@ -11,8 +12,12 @@ namespace Motee.Application.Leave;
 // whether the days exist, and whether the request collides with something.
 public interface ILeaveRequestService
 {
+    // The viewer is a separate argument rather than a field on the query, because the
+    // query is bound from the request and a scope in a query string is one the caller
+    // can widen. Required, so a new call site has to say what it may see.
     Task<PagedResult<LeaveRequestDto>> ListAsync(
         LeaveRequestQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<LeaveRequestDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);

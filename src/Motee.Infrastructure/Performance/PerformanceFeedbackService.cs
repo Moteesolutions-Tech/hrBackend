@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Performance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Performance;
 using Motee.Infrastructure.Persistence;
@@ -10,6 +11,7 @@ namespace Motee.Infrastructure.Performance;
 internal sealed class PerformanceFeedbackService(
     MoteeDbContext dbContext,
     ICurrentEmployee currentEmployee,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IPerformanceFeedbackService
 {
     public async Task<IReadOnlyList<PerformanceFeedbackDto>> AboutMeAsync(
@@ -237,9 +239,21 @@ internal sealed class PerformanceFeedbackService(
 
     public async Task<PagedResult<PerformanceFeedbackDto>> ListAsync(
         FeedbackQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<PerformanceFeedback> source = dbContext.PerformanceFeedback.AsNoTracking();
+
+        // By who the feedback is about, of the four employees a row names. The subject
+        // is whose record this is — the author, the asker and the asked are parties to
+        // it, and scoping by any of them would let somebody read a review of a person
+        // they have no reach over by having been copied in.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(feedback => reachable.Contains(feedback.AboutEmployeeId));
+        }
 
         if (query.AboutEmployeeId is Guid aboutId)
         {

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Learning;
 using Motee.Application.Tenancy;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Learning;
 using Motee.Infrastructure.Common;
@@ -19,15 +20,25 @@ internal sealed class CertificationService(
     MoteeDbContext dbContext,
     ICurrentTenant currentTenant,
     ICurrentEmployee currentEmployee,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : ICertificationService
 {
     private readonly TenantCalendar _calendar = new(dbContext, currentTenant, timeProvider);
 
     public async Task<PagedResult<CertificationDto>> ListAsync(
         CertificationQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Certification> certifications = Filtered(query);
+
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            certifications = certifications.Where(held =>
+                reachable.Contains(held.EmployeeId));
+        }
 
         DateOnly today = await _calendar.TodayAsync(cancellationToken);
 

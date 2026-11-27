@@ -31,7 +31,7 @@ public class CertificationsController(ICertificationService certifications)
     public async Task<IActionResult> List(
         [FromQuery] CertificationQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await certifications.ListAsync(query, cancellationToken));
+        Ok(await certifications.ListAsync(query, Caller(), cancellationToken));
 
     [HttpGet("summary")]
     [ProducesResponseType<CertTally>(StatusCodes.Status200OK)]

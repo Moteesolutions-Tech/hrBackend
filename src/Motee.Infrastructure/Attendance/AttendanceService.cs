@@ -3,6 +3,7 @@ using Motee.Application.Attendance;
 using Motee.Application.Common;
 using Motee.Application.Tenancy;
 using Motee.Domain.Attendance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Tenants;
@@ -16,6 +17,7 @@ internal sealed class AttendanceService(
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IAttendanceService
 {
     public async Task<AttendanceDayDto?> MineAsync(
@@ -192,6 +194,7 @@ internal sealed class AttendanceService(
 
     public async Task<PagedResult<AttendanceDayDto>> ListAsync(
         AttendanceQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         DateOnly day = query.Date ?? await TodayAsync(cancellationToken);
@@ -199,6 +202,14 @@ internal sealed class AttendanceService(
         IQueryable<AttendanceRecord> source = dbContext.AttendanceRecords
             .AsNoTracking()
             .Where(record => record.Date == day);
+
+        // Before the caller's own filters: reach is not something a filter can widen.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(record => reachable.Contains(record.EmployeeId));
+        }
 
         if (query.EmployeeId is Guid employeeId)
         {

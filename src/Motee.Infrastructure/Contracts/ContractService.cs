@@ -4,6 +4,7 @@ using Motee.Application.Contracts;
 using Motee.Application.Countries;
 using Motee.Application.Documents;
 using Motee.Application.Tenancy;
+using Motee.Domain.Authorization;
 using Motee.Domain.Common;
 using Motee.Domain.Contracts;
 using Motee.Domain.Documents;
@@ -18,15 +19,26 @@ internal sealed class ContractService(
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IContractService
 {
     public async Task<PagedResult<ContractDto>> ListAsync(
         ContractQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         DateOnly today = Today();
 
         IQueryable<Contract> source = dbContext.Contracts.AsNoTracking();
+
+        // First, before any of the caller's own filters: what they may see is not
+        // something a filter can widen, and putting it first makes that plain.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(contract => reachable.Contains(contract.EmployeeId));
+        }
 
         if (!query.IncludeArchived)
         {

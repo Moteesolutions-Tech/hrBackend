@@ -51,7 +51,7 @@ public class AttendanceCorrectionsController(
     public async Task<IActionResult> List(
         [FromQuery] CorrectionQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await corrections.ListAsync(query, cancellationToken));
+        Ok(await corrections.ListAsync(query, Caller(), cancellationToken));
 
     [HttpPost("{id:guid}/approve")]
     [ProducesResponseType<AttendanceCorrectionDto>(StatusCodes.Status200OK)]

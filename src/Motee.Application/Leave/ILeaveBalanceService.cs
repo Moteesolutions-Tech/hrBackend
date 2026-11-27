@@ -1,3 +1,4 @@
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Leave;
 
@@ -30,6 +31,7 @@ public interface ILeaveBalanceService
     // rows here than anywhere else in the product — one per person per leave type.
     Task<PagedResult<LeaveBalanceDto>> ListAsync(
         LeaveBalanceQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     // HR granting or docking days by hand, with a reason. Kept as its own record rather

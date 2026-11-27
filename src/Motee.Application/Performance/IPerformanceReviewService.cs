@@ -1,3 +1,4 @@
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Performance;
 
@@ -35,6 +36,7 @@ public interface IPerformanceReviewService
 
     Task<PagedResult<PerformanceReviewDto>> ListAsync(
         ReviewQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<PerformanceReviewDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
