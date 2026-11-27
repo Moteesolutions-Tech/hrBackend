@@ -1,3 +1,5 @@
+using Motee.Domain.Attendance;
+
 namespace Motee.Application.Dashboard;
 
 // The HR dashboard.
@@ -27,6 +29,139 @@ public interface IDashboardService
     // page showed whatever that session happened to have loaded — and two stages
     // had no source at all.
     Task<LifecycleDashboardDto> LifecycleAsync(CancellationToken cancellationToken = default);
+
+    // There is deliberately no EventsAsync here.
+    //
+    // The dashboard's Events tab wants birthdays, anniversaries, closures,
+    // starters, leavers and whatever is on the company calendar, in date order.
+    // GET /calendar/upcoming?days=30 already returns exactly that: the agenda
+    // composes holidays, calendar events, leave, sickness, celebrations,
+    // interviews and reviews, sorted by date.
+    //
+    // A dashboard copy would be a second implementation of the same derivations
+    // and a worse one — the agenda applies each event's own audience rules, so a
+    // one-to-one somebody is not party to stays out of it. A feed assembled here
+    // would have to repeat that or leak. Starters and leavers were the only
+    // genuine gap and were added to the agenda's celebrations instead, which
+    // also puts them on the calendar screen where "Ada starts Monday" belongs.
+
+    // Who is carrying leave they are about to lose.
+    //
+    // "About to lose" rather than "has a lot left": the threshold is the
+    // carry-over cap from the policy, so the list answers the question the card
+    // is actually for. A flat number of days would flag somebody with 12 days
+    // and unlimited carry-over, who loses nothing.
+    Task<UntakenLeaveDashboardDto> UntakenLeaveAsync(
+        CancellationToken cancellationToken = default);
+
+    // The employee's own front page: where their clock is, whether they are off
+    // today, what is waiting on them, and who on their team is away.
+    //
+    // One call for a page that would otherwise make five, and composed by
+    // delegating — the clock comes back from IAttendanceService and the task
+    // counts from ITaskService, not from a second reading of the same tables.
+    // That is the difference between this and an events feed assembled here:
+    // delegation cannot drift from what the other screens show, a
+    // reimplementation can.
+    Task<MyDashboardDto> MineAsync(CancellationToken cancellationToken = default);
+}
+
+// ── self-service ────────────────────────────────────────────────────────────
+
+public sealed record MyDashboardDto
+{
+    public required DateOnly AsOf { get; init; }
+
+    public required MyDayDto Today { get; init; }
+
+    // Things still waiting on this person, newest obligation first. Distinct
+    // from their notifications, which say what happened: a notification about a
+    // course was sent once, and the course stays outstanding until it is done.
+    public required IReadOnlyList<MyPendingItemDto> Pending { get; init; }
+
+    public required IReadOnlyList<TeamLeaveDto> TeamOnLeave { get; init; }
+}
+
+public sealed record MyDayDto
+{
+    // From the attendance service, so the dashboard's button and the attendance
+    // screen's button cannot disagree about whether somebody is clocked in.
+    public required ClockState Clock { get; init; }
+
+    public DateTimeOffset? ClockedInAt { get; init; }
+
+    public required decimal WorkedHours { get; init; }
+
+    // The leave type's name when they are off today, null when they are not.
+    // Named rather than a boolean: "on leave" and "on leave — compassionate"
+    // are different things to show a colleague opening the page.
+    public string? OnLeave { get; init; }
+
+    public required int TasksOutstanding { get; init; }
+
+    public required int TasksOverdue { get; init; }
+
+    // Pending.Count, carried here so the tile can show a number without the
+    // client having to hold the list it does not otherwise display.
+    public required int PendingActions { get; init; }
+}
+
+public sealed record MyPendingItemDto
+{
+    // leave-request, course, acknowledgement, approval. The screen keys its
+    // icon off this; the wording below is for reading, not for switching on.
+    public required string Kind { get; init; }
+
+    public required string Label { get; init; }
+
+    public string? Detail { get; init; }
+
+    public string? Href { get; init; }
+
+    // Past its date, or with nothing between it and a deadline. Drives the
+    // card's emphasis rather than a severity the server has invented.
+    public required bool Urgent { get; init; }
+}
+
+public sealed record TeamLeaveDto
+{
+    public required Guid EmployeeId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required string LeaveType { get; init; }
+
+    // First working day back, so the card reads "back Thursday" rather than
+    // making somebody add a day to the end date themselves.
+    public DateOnly? ReturnsOn { get; init; }
+}
+
+// ── untaken leave ───────────────────────────────────────────────────────────
+
+public sealed record UntakenLeaveDashboardDto
+{
+    public required DateOnly AsOf { get; init; }
+
+    // When the balances below stop being carried. What makes the list urgent.
+    public DateOnly? LeaveYearEnds { get; init; }
+
+    public required IReadOnlyList<UntakenLeaveRowDto> AtRisk { get; init; }
+}
+
+public sealed record UntakenLeaveRowDto
+{
+    public required Guid EmployeeId { get; init; }
+
+    public required string EmployeeName { get; init; }
+
+    public string? Department { get; init; }
+
+    // Days still available to book.
+    public required decimal Remaining { get; init; }
+
+    // Of those, how many cannot be carried and would simply go. The figure the
+    // card is really about: 20 remaining with 5 carry-over allowed is 15 lost.
+    public required decimal AtRiskDays { get; init; }
 }
 
 // ── lifecycle ───────────────────────────────────────────────────────────────

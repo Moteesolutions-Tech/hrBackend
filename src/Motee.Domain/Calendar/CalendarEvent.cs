@@ -42,6 +42,13 @@ public enum CalendarCategory
     Holiday,
     Birthday,
     Anniversary,
+
+    // Somebody's first and last day. One-off rather than annual, unlike an
+    // anniversary: "Ada starts Monday" is the thing worth knowing, and it is
+    // only true once.
+    Starter,
+    Leaver,
+
     Leave,
     LeaveRequest,
     Cover,
