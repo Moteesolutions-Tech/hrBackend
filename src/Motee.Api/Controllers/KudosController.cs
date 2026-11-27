@@ -114,6 +114,15 @@ public class KudosController(
 
     // A toggle: the same reaction twice takes it back, which is what the
     // feed's single handler does.
+    // Who reacted. The post already carries a count per type and whether the caller is
+    // one of them; this is the names behind the count, which a hover card needs and
+    // nothing else could supply.
+    [HttpGet("{id:guid}/reactions")]
+    [ProducesResponseType<IReadOnlyList<ReactorDto>>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.View)]
+    public async Task<IActionResult> Reactors(Guid id, CancellationToken cancellationToken) =>
+        Ok(await kudos.ReactorsAsync(id, cancellationToken));
+
     [HttpPost("{id:guid}/reactions")]
     [ProducesResponseType<KudosPostDto>(StatusCodes.Status200OK)]
     [Authorize]

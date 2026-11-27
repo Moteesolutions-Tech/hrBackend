@@ -1,5 +1,6 @@
 using Motee.Application.Common;
 using Motee.Domain.Health;
+using Motee.Domain.Sickness;
 
 namespace Motee.Application.Health;
 
@@ -56,6 +57,17 @@ public interface IOhService
         CancellationToken cancellationToken = default);
 
     Task<OhOutcome> RemoveAsync(Guid id, CancellationToken cancellationToken = default);
+
+    // The spells attached to a case. Set rather than added to: the screen hands over
+    // the list it is showing, and anything missing from it has been unlinked.
+    //
+    // A case holds one triggering absence on the referral itself and a set of linked
+    // ones here, because a long-running case is usually several spells — off, back for
+    // a fortnight, off again — and one id could only ever name the first.
+    Task<OhResult> SetAbsencesAsync(
+        Guid id,
+        IReadOnlyList<Guid> sicknessRecordIds,
+        CancellationToken cancellationToken = default);
 
     // Read from the audit trail, which already records every stage change with
     // who made it and when. The field-level diff is withheld for this type, so
@@ -165,6 +177,11 @@ public sealed record OhCaseDto
 
     public required IReadOnlyList<AdjustmentDto> Adjustments { get; init; }
 
+    // Every spell attached to the case, oldest first. Sent with the case rather than
+    // fetched separately: the screen shows them in the same panel, and a second round
+    // trip per case would make the board N+1.
+    public required IReadOnlyList<LinkedAbsenceDto> LinkedAbsences { get; init; }
+
     // Derived from the stage, so it cannot keep saying "chase the appointment"
     // after the appointment happened.
     public OhNextAction? NextAction { get; init; }
@@ -172,6 +189,29 @@ public sealed record OhCaseDto
     // Which stages this case may move to, built from the same rule the service
     // applies — so a picker cannot offer something the save will refuse.
     public required IReadOnlyList<OhStage> NextStages { get; init; }
+}
+
+// One spell attached to a case.
+//
+// Dates and a day count, and the reason category — not ReasonDetail, which is what the
+// employee actually said and is special-category data behind the medical grant. A case
+// panel listing spells needs to know a shoulder injury from a mental-health absence to
+// read as a history at all; it does not need the sentence somebody typed.
+public sealed record LinkedAbsenceDto
+{
+    public required Guid Id { get; init; }
+
+    public required DateOnly StartDate { get; init; }
+
+    public DateOnly? EndDate { get; init; }
+
+    // Inclusive of both ends, and null while somebody is still off — an open spell has
+    // no length yet, and showing today's count as the length reads as a closed one.
+    public int? Days { get; init; }
+
+    public required SicknessReason Reason { get; init; }
+
+    public required AbsenceState State { get; init; }
 }
 
 public sealed record AdjustmentDto

@@ -172,6 +172,8 @@ internal sealed class LeaveCarryOverConfiguration : IEntityTypeConfiguration<Lea
 
 internal sealed class PublicHolidayConfiguration : IEntityTypeConfiguration<PublicHoliday>
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
     public void Configure(EntityTypeBuilder<PublicHoliday> builder)
     {
         builder.ToTable("public_holidays");
@@ -180,6 +182,23 @@ internal sealed class PublicHolidayConfiguration : IEntityTypeConfiguration<Publ
 
         builder.Property(holiday => holiday.Name).HasMaxLength(100).IsRequired();
         builder.Property(holiday => holiday.CountryCode).HasMaxLength(2);
+
+        // jsonb, like a blackout's departments: a handful of ids, read whole and written
+        // whole. The date range is what the database narrows on, and the exemption is
+        // tested in memory after that against the one employee asking.
+        builder.Property(holiday => holiday.ExcludedDepartmentIds)
+            .HasColumnName("excluded_department_ids")
+            .HasColumnType("jsonb")
+            .HasConversion(
+                value => JsonSerializer.Serialize(value, Json),
+                json => JsonSerializer.Deserialize<IReadOnlyList<Guid>>(json, Json)!,
+                new ValueComparer<IReadOnlyList<Guid>>(
+                    (left, right) => JsonSerializer.Serialize(left, Json)
+                        == JsonSerializer.Serialize(right, Json),
+                    value => JsonSerializer.Serialize(value, Json).GetHashCode(
+                        StringComparison.Ordinal),
+                    value => JsonSerializer.Deserialize<IReadOnlyList<Guid>>(
+                        JsonSerializer.Serialize(value, Json), Json)!));
 
         // The same day twice would be counted twice by nothing — the day count uses a
         // set — but it would show as a duplicate on the calendar and invite somebody to

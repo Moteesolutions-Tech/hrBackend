@@ -70,7 +70,15 @@ public class WorkflowRunServiceTests(PostgresFixture fixture)
         // And the function becomes a person.
         Assert.Equal("Ada Okafor", run.Tasks[0].AssigneeName);
         Assert.Equal(_adaId, run.Tasks[0].AssigneeEmployeeId);
+
+        // The level the task was handed to, as well as the person it resolved
+        // to. The row already stored it and the DTO dropped it, so a client
+        // showing "with HR Admin" had only a name and no way to know whether it
+        // was a role or an individual it could reassign away from.
+        Assert.Equal(AssigneeKind.AccessLevel, run.Tasks[0].AssigneeKind);
+        Assert.Equal(_hrAdminLevelId, run.Tasks[0].AssigneeAccessLevelId);
     }
+
 
     // The status exists so a half-written workflow is not live. The client's
     // trigger accepts anything that is not archived.
@@ -464,6 +472,10 @@ public class WorkflowRunServiceTests(PostgresFixture fixture)
         // so.
         Assert.Equal("Ada Okafor", task.ReassignedFrom);
         Assert.Equal(AssigneeKind.Employee, task.AssigneeKind);
+
+        // And the level is gone, so the two cannot both claim the task. Only
+        // visible now that the DTO carries the level at all.
+        Assert.Null(task.AssigneeAccessLevelId);
     }
 
     [SkippableFact]

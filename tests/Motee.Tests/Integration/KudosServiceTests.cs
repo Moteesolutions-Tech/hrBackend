@@ -487,6 +487,87 @@ public class KudosServiceTests(PostgresFixture fixture)
         Assert.False(heart.Mine);
     }
 
+    // Who, not how many. The counts on the post answer "three people clapped";
+    // the frontend's hover card asks "which three", and nothing could answer it
+    // — the post carries a count and a Mine flag, and names appear nowhere.
+    [SkippableFact]
+    public async Task NamesWhoReacted()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        KudosPostDto post = await SentAsync(provider, Sending());
+
+        await Kudos(provider).ToggleReactionAsync(post.Id, ReactionType.Clap);
+
+        await ActAsync(provider, _bolaId);
+        await Kudos(provider).ToggleReactionAsync(post.Id, ReactionType.Heart);
+
+        IReadOnlyList<ReactorDto> reactors = await Kudos(provider).ReactorsAsync(post.Id);
+
+        Assert.Equal(2, reactors.Count);
+
+        ReactorDto clap = reactors.First(row => row.Type == ReactionType.Clap);
+
+        Assert.Equal(_adaId, clap.EmployeeId);
+        Assert.Equal("Ada Okafor", clap.Name);
+
+        Assert.Equal("Bola Okafor", reactors.First(row => row.Type == ReactionType.Heart).Name);
+    }
+
+    // Newest first, because a card shows the first few and "and 12 others".
+    [SkippableFact]
+    public async Task ReactorsComeBackNewestFirst()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        KudosPostDto post = await SentAsync(provider, Sending());
+
+        await Kudos(provider).ToggleReactionAsync(post.Id, ReactionType.Clap);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+
+        await ActAsync(provider, _bolaId);
+        await Kudos(provider).ToggleReactionAsync(post.Id, ReactionType.Clap);
+
+        IReadOnlyList<ReactorDto> reactors = await Kudos(provider).ReactorsAsync(post.Id);
+
+        Assert.Equal(_bolaId, reactors[0].EmployeeId);
+        Assert.Equal(_adaId, reactors[1].EmployeeId);
+    }
+
+    // Taking a reaction back takes the name off the list too, rather than
+    // leaving somebody credited with a reaction they have withdrawn.
+    [SkippableFact]
+    public async Task AWithdrawnReactionTakesTheNameWithIt()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        KudosPostDto post = await SentAsync(provider, Sending());
+
+        await Kudos(provider).ToggleReactionAsync(post.Id, ReactionType.Clap);
+        Assert.Single(await Kudos(provider).ReactorsAsync(post.Id));
+
+        await Kudos(provider).ToggleReactionAsync(post.Id, ReactionType.Clap);
+
+        Assert.Empty(await Kudos(provider).ReactorsAsync(post.Id));
+    }
+
+    [SkippableFact]
+    public async Task ReactorsOfAPostThatIsNotThereIsEmpty()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.Empty(await Kudos(provider).ReactorsAsync(Guid.NewGuid()));
+    }
+
     // Every type comes back, so the feed draws the whole row without having to
     // invent the zeroes.
     [SkippableFact]

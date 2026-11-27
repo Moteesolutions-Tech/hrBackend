@@ -107,12 +107,40 @@ public class OhReferral : ITenantScoped
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+// One absence attached to one case.
+//
+// A row rather than a list on the referral, because the link is asked about from both
+// ends: the case wants its spells, and an absence wants to know whether it is already
+// part of a case. A jsonb list on the referral would answer the first and not the
+// second, and would hold ids with nothing keeping them real.
+//
+// OhReferral.SicknessRecordId stays what it was — the absence that triggered monitoring,
+// which is one specific spell and not a member of a set. This is the history around it.
+public class OhReferralAbsence : ITenantScoped
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    public Guid ReferralId { get; set; }
+
+    public Guid SicknessRecordId { get; set; }
+
+    public DateTimeOffset LinkedAt { get; set; }
+}
+
 public enum OhRefusal
 {
     None,
     EmployeeNotFound,
     StageNotReachable,
     AlreadyOpen,
+
+    // An absence id that is not this tenant's, or belongs to a different person from
+    // the one the case is about. Refused rather than skipped: silently dropping it
+    // would leave the screen showing a link it thinks it saved.
+    AbsenceNotFound,
+    AbsenceBelongsToSomebodyElse,
     AbsenceStartRequired,
     ReferralDateRequired,
     AssessmentDateRequired,

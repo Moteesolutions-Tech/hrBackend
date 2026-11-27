@@ -58,6 +58,14 @@ public interface ISuggestionService
 
     // A toggle: voting twice takes the vote back, which is what the board's
     // single handler does.
+    // Takes it off the board for good, with its comments and votes.
+    //
+    // Not a status: every other action here moves a suggestion through triage, and a
+    // duplicate or something posted to the wrong board has no honest status to sit in.
+    // Removed outright rather than hidden, because a hidden suggestion still counts
+    // towards the board's totals and nothing can be clicked through to it.
+    Task<SuggestionOutcome> RemoveAsync(Guid id, CancellationToken cancellationToken = default);
+
     Task<SuggestionResult> ToggleUpvoteAsync(
         Guid id,
         CancellationToken cancellationToken = default);

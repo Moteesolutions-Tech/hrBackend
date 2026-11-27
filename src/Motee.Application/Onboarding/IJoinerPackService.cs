@@ -41,6 +41,21 @@ public interface IJoinerPackService
         JoinerDocumentKind kind,
         CancellationToken cancellationToken = default);
 
+    // The guarantors on somebody's record, for HR reading an employee rather than a
+    // joiner filling a form in.
+    //
+    // They were only ever reachable through the joiner pack, which is keyed on the
+    // onboarding record and reached with a one-time join token. So once that token was
+    // spent the guarantors were written and unreadable: collected, stored, and visible
+    // nowhere. This is the read that was missing, keyed on the employee because that is
+    // what a profile page has.
+    //
+    // Empty when somebody has no onboarding record — a UK joiner asked for none, and
+    // anybody added straight to the directory never had a pack.
+    Task<IReadOnlyList<GuarantorDto>> GuarantorsForEmployeeAsync(
+        Guid employeeId,
+        CancellationToken cancellationToken = default);
+
     // Both guarantors at once. They are collected as a pair on one step, and saving one
     // at a time would let a joiner submit with only the first.
     Task<JoinerPackResult> SaveGuarantorsAsync(

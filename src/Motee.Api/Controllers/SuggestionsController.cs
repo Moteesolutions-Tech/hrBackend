@@ -127,6 +127,22 @@ public class SuggestionsController(
         Respond(await suggestions.SetFeaturedAsync(id, false, cancellationToken),
             "Suggestion unfeatured.");
 
+    // Off the board for good, with its comments and votes.
+    //
+    // Behind Delete rather than Edit: every other action here moves a suggestion
+    // through triage and can be undone, and this one is the person's idea gone.
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Delete)]
+    public async Task<IActionResult> Remove(Guid id, CancellationToken cancellationToken)
+    {
+        SuggestionOutcome outcome = await suggestions.RemoveAsync(id, cancellationToken);
+
+        return outcome == SuggestionOutcome.Succeeded
+            ? Ok<object?>(null, "Suggestion removed.")
+            : Failure<object?>(MoteeStatusCodes.NotFound, "Suggestion not found.");
+    }
+
     // A toggle: voting twice takes the vote back, which is what the board's
     // single handler does.
     [HttpPost("{id:guid}/upvote")]

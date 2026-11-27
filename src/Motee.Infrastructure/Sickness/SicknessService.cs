@@ -1102,12 +1102,22 @@ internal sealed class SicknessService(
         return _patterns;
     }
 
+    // Only the days the company actually closes. An observance that is marked and still
+    // worked is a working day, and counting it as a closure would shorten every absence
+    // spanning it.
+    //
+    // Department exemptions are deliberately not applied here, unlike the leave day
+    // count. This set is cached once for the whole request and read while scoring every
+    // employee in the tenant; making it department-aware would mean a set per department
+    // to shift a Bradford factor by one day. The leave path is where the exemption
+    // changes what somebody is charged, and that is where it is honoured.
     private async Task<IReadOnlySet<DateOnly>> HolidaysAsync(CancellationToken cancellationToken)
     {
         _holidays ??=
         [
             .. await dbContext.PublicHolidays
                 .AsNoTracking()
+                .Where(holiday => holiday.IsNonWorking)
                 .Select(holiday => holiday.Date)
                 .ToListAsync(cancellationToken),
         ];

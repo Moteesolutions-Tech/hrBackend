@@ -23,6 +23,7 @@ public class JoinerPackTests(PostgresFixture fixture)
 {
     private Guid _tenantId;
     private Guid _recordId;
+    private Guid _employeeId;
 
     private async Task<ServiceProvider> ArrangeAsync(string country = "NG")
     {
@@ -49,7 +50,7 @@ public class JoinerPackTests(PostgresFixture fixture)
             .CreateAsync(new DepartmentRequest { Name = "Engineering", Code = "ENG" }))
             .Department!.Id;
 
-        Guid employeeId = (await Resolve<IEmployeeService>(provider).CreateAsync(
+        _employeeId = (await Resolve<IEmployeeService>(provider).CreateAsync(
             new EmployeeRequest
             {
                 FirstName = "Ben",
@@ -63,7 +64,7 @@ public class JoinerPackTests(PostgresFixture fixture)
             })).Employee!.Id;
 
         _recordId = (await Resolve<IOnboardingService>(provider)
-            .EnsureAsync(employeeId)).Id;
+            .EnsureAsync(_employeeId)).Id;
 
         return provider;
     }
@@ -495,5 +496,60 @@ public class JoinerPackTests(PostgresFixture fixture)
             JoinerPackOutcome.UnknownFile,
             (await Pack(provider).AttachDocumentAsync(
                 _recordId, JoinerDocumentKind.Passport, avatar.File!.Id)).Outcome);
+    }
+
+    // ── reading them back off the employee ──────────────────────────────────
+    //
+    // Guarantors were write-only. The pack is keyed on the onboarding record
+    // and reached with a one-time join token, so once that token was spent they
+    // were collected, stored, and visible nowhere — not on the profile, not
+    // anywhere. This is the read that was missing.
+
+    [SkippableFact]
+    public async Task GuarantorsCanBeReadBackFromTheEmployee()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await Pack(provider).AcceptPrivacyNoticeAsync(_recordId);
+
+        Assert.True((await Pack(provider)
+            .SaveGuarantorsAsync(_recordId, [Guarantor(1), Guarantor(2)])).Succeeded);
+
+        IReadOnlyList<GuarantorDto> guarantors =
+            await Pack(provider).GuarantorsForEmployeeAsync(_employeeId);
+
+        // In position order, because their ID documents are filed against the
+        // same numbers — a guarantor whose ID cannot be matched to them is not
+        // evidence of anything.
+        Assert.Equal(2, guarantors.Count);
+        Assert.Equal(1, guarantors[0].Position);
+        Assert.Equal("Guarantor 1", guarantors[0].Name);
+        Assert.Equal("Uncle", guarantors[0].Relationship);
+        Assert.Equal("08098765432", guarantors[0].Phone);
+        Assert.Equal(2, guarantors[1].Position);
+    }
+
+    [SkippableFact]
+    public async Task AnEmployeeWithNoGuarantorsReadsAsEmpty()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.Empty(await Pack(provider).GuarantorsForEmployeeAsync(_employeeId));
+    }
+
+    // A UK joiner is asked for none, and anybody added straight to the
+    // directory never filled a pack in. The absence is the answer.
+    [SkippableFact]
+    public async Task AnEmployeeWithNoOnboardingRecordReadsAsEmpty()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.Empty(await Pack(provider).GuarantorsForEmployeeAsync(Guid.NewGuid()));
     }
 }

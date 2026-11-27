@@ -34,6 +34,16 @@ public class AssetsController(
             Query(filters) with { Page = page, PageSize = pageSize },
             cancellationToken));
 
+    // What the caller is holding. RequiresEmployee rather than the module permission:
+    // this is their own kit, and most employees do not hold the assets module — which
+    // is why the self-service page was filtering the HR register and showing them
+    // nothing.
+    [HttpGet("mine")]
+    [RequiresEmployee]
+    [ProducesResponseType<IReadOnlyList<MyAssetDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Mine(CancellationToken cancellationToken) =>
+        Ok(await assets.MineAsync(cancellationToken));
+
     [HttpGet("{id:guid}")]
     [ProducesResponseType<AssetDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]

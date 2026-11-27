@@ -48,6 +48,13 @@ public interface IKudosService
 
     // Toggles. Clicking the same reaction twice takes it back, which is what
     // the feed's single onReact handler does.
+    // Who reacted, newest first. The counts on the post answer "three people clapped";
+    // this answers "which three", which a hover card has to show and nothing else could
+    // — the post carries a count and a Mine flag, and names appear nowhere on it.
+    Task<IReadOnlyList<ReactorDto>> ReactorsAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
     Task<KudosResult> ToggleReactionAsync(
         Guid id,
         ReactionType type,
@@ -110,6 +117,21 @@ public sealed record KudosPostDto
     public required bool CanRemove { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }
+}
+
+// One person's reaction, named.
+//
+// A row per reaction rather than per person: somebody can clap and leave a heart, and
+// collapsing the two would lose which of them the card is showing a name against.
+public sealed record ReactorDto
+{
+    public required Guid EmployeeId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required ReactionType Type { get; init; }
+
+    public required DateTimeOffset At { get; init; }
 }
 
 public sealed record KudosReactionDto

@@ -22,6 +22,14 @@ public interface IAssetService
     // Assign and return are separate from Update for the same reason a status change
     // is separate on an employee: handing someone a laptop is an act, not a side
     // effect of correcting its serial number.
+    // What the signed-in employee is holding. A separate shape rather than the register
+    // filtered, for the same reason the occupational-health views are separate methods:
+    // the HR row carries notes that are HR's — "screen cracked, consider a deduction" —
+    // and a narrow DTO has nowhere to put them, so the mistake cannot compile.
+    //
+    // Empty for an account with no employee record, which the owner permanently is.
+    Task<IReadOnlyList<MyAssetDto>> MineAsync(CancellationToken cancellationToken = default);
+
     Task<AssetResult> AssignAsync(
         Guid id,
         AssignAssetRequest request,
@@ -156,6 +164,28 @@ public sealed record AssetResult
 
     public static AssetResult Ok(AssetDto asset) =>
         new() { Outcome = AssetOutcome.Succeeded, Asset = asset };
+}
+
+// One asset, as the person holding it sees it.
+//
+// No Notes, which is the point: that field is HR's record about the item, and the
+// condition on handover is what supports a deduction. No AssignedToName either — on this
+// list it is always the caller.
+public sealed record MyAssetDto
+{
+    public required Guid Id { get; init; }
+
+    public required string Tag { get; init; }
+
+    public required string Name { get; init; }
+
+    public string? Category { get; init; }
+
+    public string? SerialNumber { get; init; }
+
+    public DateOnly? AssignedDate { get; init; }
+
+    public required AssetStatus Status { get; init; }
 }
 
 public sealed record AssetDto
