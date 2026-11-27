@@ -210,6 +210,7 @@ internal sealed class LeaveRequestService(
     // because both are jsonb lists, and a company has a handful of blackouts live at once.
     private async Task<LeaveBlackout?> BlockingBlackoutAsync(
         LeaveQuoteRequest request,
+        Guid? departmentId,
         CancellationToken cancellationToken)
     {
         List<LeaveBlackout> candidates = await dbContext.LeaveBlackouts
@@ -224,15 +225,19 @@ internal sealed class LeaveRequestService(
             return null;
         }
 
-        Guid? departmentId = await dbContext.Employees
-            .AsNoTracking()
-            .Where(employee => employee.Id == request.EmployeeId)
-            .Select(employee => employee.DepartmentId)
-            .FirstOrDefaultAsync(cancellationToken);
-
         return candidates.FirstOrDefault(blackout => blackout.Blocks(
             request.StartDate, request.EndDate, request.LeaveTypeId, departmentId));
     }
+
+    // Where somebody works, which two separate rules need: a blackout can cover one
+    // department, and a closure day can exempt one. Loaded once per validation rather
+    // than once per rule.
+    private Task<Guid?> DepartmentOfAsync(Guid employeeId, CancellationToken cancellationToken) =>
+        dbContext.Employees
+            .AsNoTracking()
+            .Where(employee => employee.Id == employeeId)
+            .Select(employee => employee.DepartmentId)
+            .FirstOrDefaultAsync(cancellationToken);
 
     private async Task<Validation> ValidateAsync(
         LeaveQuoteRequest request,
@@ -276,8 +281,12 @@ internal sealed class LeaveRequestService(
                 "No policy is configured for that kind of leave.");
         }
 
-        IReadOnlyList<(DateOnly Date, string Name)> named =
-            await holidays.NamedAsync(request.StartDate, request.EndDate, cancellationToken);
+        // The employee's department decides which closure days apply to them: a day the
+        // warehouse works through costs them a day of leave like any other.
+        Guid? departmentId = await DepartmentOfAsync(request.EmployeeId, cancellationToken);
+
+        IReadOnlyList<(DateOnly Date, string Name)> named = await holidays.NamedAsync(
+            request.StartDate, request.EndDate, departmentId, cancellationToken);
 
         HashSet<DateOnly> holidayDates = [.. named.Select(holiday => holiday.Date)];
 
@@ -324,7 +333,8 @@ internal sealed class LeaveRequestService(
         // Checked before the balance, because a blackout is about the dates rather than
         // the person: being told to pick different dates is more useful than being told
         // how many days are left over dates that were never available.
-        LeaveBlackout? blackout = await BlockingBlackoutAsync(request, cancellationToken);
+        LeaveBlackout? blackout =
+            await BlockingBlackoutAsync(request, departmentId, cancellationToken);
 
         if (blackout is not null)
         {

@@ -156,6 +156,47 @@ internal sealed class JoinerPackService(
         return JoinerPackOutcome.Succeeded;
     }
 
+    public async Task<IReadOnlyList<GuarantorDto>> GuarantorsForEmployeeAsync(
+        Guid employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        // Through the onboarding record, because that is what a guarantor hangs off.
+        // The newest record, so somebody rehired does not get the guarantors they
+        // named the first time round shown against the current engagement.
+        Guid recordId = await dbContext.OnboardingRecords
+            .AsNoTracking()
+            .Where(record => record.EmployeeId == employeeId)
+            .OrderByDescending(record => record.CreatedAt)
+            .Select(record => record.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (recordId == Guid.Empty)
+        {
+            return [];
+        }
+
+        return await GuarantorsAsync(recordId, cancellationToken);
+    }
+
+    private async Task<List<GuarantorDto>> GuarantorsAsync(
+        Guid onboardingRecordId,
+        CancellationToken cancellationToken) =>
+        await dbContext.Guarantors
+            .AsNoTracking()
+            .Where(g => g.OnboardingRecordId == onboardingRecordId)
+            .OrderBy(g => g.Position)
+            .Select(g => new GuarantorDto
+            {
+                Id = g.Id,
+                Position = g.Position,
+                Name = g.Name,
+                Relationship = g.Relationship,
+                Occupation = g.Occupation,
+                Address = g.Address,
+                Phone = g.Phone,
+            })
+            .ToListAsync(cancellationToken);
+
     public async Task<JoinerPackResult> SaveGuarantorsAsync(
         Guid onboardingRecordId,
         IReadOnlyList<GuarantorRequest> guarantors,
@@ -437,21 +478,7 @@ internal sealed class JoinerPackService(
             })
             .ToListAsync(cancellationToken);
 
-        List<GuarantorDto> guarantors = await dbContext.Guarantors
-            .AsNoTracking()
-            .Where(g => g.OnboardingRecordId == record.Id)
-            .OrderBy(g => g.Position)
-            .Select(g => new GuarantorDto
-            {
-                Id = g.Id,
-                Position = g.Position,
-                Name = g.Name,
-                Relationship = g.Relationship,
-                Occupation = g.Occupation,
-                Address = g.Address,
-                Phone = g.Phone,
-            })
-            .ToListAsync(cancellationToken);
+        List<GuarantorDto> guarantors = await GuarantorsAsync(record.Id, cancellationToken);
 
         StarterTaxRecord? tax = await dbContext.StarterTaxRecords
             .AsNoTracking()

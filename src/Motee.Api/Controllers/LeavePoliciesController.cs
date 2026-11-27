@@ -74,6 +74,25 @@ public class LeavePoliciesController(ILeavePolicyService policies) : ApiControll
             : Failure<PublicHolidayDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
     }
 
+    // Correcting one in place. Until this existed the only way to fix a date, a name or
+    // a department exemption was to delete the row and add another — which changes the
+    // id, so anything holding it pointed at nothing.
+    [HttpPut("holidays/{id:guid}")]
+    [ProducesResponseType<PublicHolidayDto>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Edit)]
+    public async Task<IActionResult> UpdateHoliday(
+        Guid id,
+        PublicHolidayRequest request,
+        CancellationToken cancellationToken)
+    {
+        PublicHolidayResult result =
+            await policies.UpdateHolidayAsync(id, request, cancellationToken);
+
+        return result.Succeeded
+            ? Ok(result.Holiday!, "Public holiday updated.")
+            : Failure<PublicHolidayDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
+    }
+
     // Fills a year in from the built-in calendar. Existing days are left alone — a
     // company that renamed one, or moved it to match a local announcement, has said
     // something this must not undo.

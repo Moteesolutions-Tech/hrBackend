@@ -656,10 +656,13 @@ internal sealed class HeadcountService(
             return new Dictionary<Guid, Absence>();
         }
 
+        // Closures only. A day the company marks and still works is a day somebody could
+        // have been absent, so it belongs in the denominator.
         HashSet<DateOnly> holidays =
         [
             .. await dbContext.PublicHolidays
                 .AsNoTracking()
+                .Where(holiday => holiday.IsNonWorking)
                 .Select(holiday => holiday.Date)
                 .ToListAsync(cancellationToken),
         ];

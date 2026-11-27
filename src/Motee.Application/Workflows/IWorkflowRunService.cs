@@ -183,6 +183,14 @@ public sealed record RunTaskDto
 
     public required AssigneeKind AssigneeKind { get; init; }
 
+    // The level the task was handed to, where it was handed to one. The row has always
+    // stored it and this DTO dropped it, so a client showing "with HR Admin" had a name
+    // and no id — no way to tell a role step from an individual, and nothing to match
+    // against the levels the signed-in user holds.
+    //
+    // Cleared when a task is reassigned to a person, so the two never both claim it.
+    public Guid? AssigneeAccessLevelId { get; init; }
+
     public Guid? AssigneeEmployeeId { get; init; }
 
     public required string AssigneeName { get; init; }

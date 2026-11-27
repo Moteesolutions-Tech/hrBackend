@@ -858,6 +858,7 @@ internal sealed class WorkflowRunService(
                         DaysOverdue = RunProgress.DaysOverdue(task, today),
                         HasEscalated = RunProgress.HasEscalated(task, today),
                         AssigneeKind = task.AssigneeKind,
+                        AssigneeAccessLevelId = task.AssigneeAccessLevelId,
                         AssigneeEmployeeId = task.AssigneeEmployeeId,
                         AssigneeName = task.AssigneeName,
                         HasReviewer = task.HasReviewer,

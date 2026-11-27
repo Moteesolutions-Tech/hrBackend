@@ -323,6 +323,42 @@ internal sealed class KudosService(
             (await DescribeAsync([post], await ViewerAsync(cancellationToken), cancellationToken))[0]);
     }
 
+    public async Task<IReadOnlyList<ReactorDto>> ReactorsAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        // Through the same visibility check as reading the post. A private kudos the
+        // caller cannot see must not leak its reactors either, and that would be easy
+        // to miss by querying the reaction rows directly.
+        (KudosPost? post, Viewer _, KudosOutcome _) =
+            await VisibleOrRefusedAsync(id, cancellationToken);
+
+        if (post is null)
+        {
+            return [];
+        }
+
+        return await dbContext.KudosReactions
+            .AsNoTracking()
+            .Where(reaction => reaction.KudosPostId == id)
+
+            // Newest first: a card shows the first few names and "and 12 others".
+            .OrderByDescending(reaction => reaction.CreatedAt)
+            .ThenBy(reaction => reaction.Id)
+            .Join(
+                dbContext.Employees.AsNoTracking(),
+                reaction => reaction.EmployeeId,
+                employee => employee.Id,
+                (reaction, employee) => new ReactorDto
+                {
+                    EmployeeId = employee.Id,
+                    Name = employee.FirstName + " " + employee.LastName,
+                    Type = reaction.Type,
+                    At = reaction.CreatedAt,
+                })
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<KudosResult> ToggleReactionAsync(
         Guid id,
         ReactionType type,

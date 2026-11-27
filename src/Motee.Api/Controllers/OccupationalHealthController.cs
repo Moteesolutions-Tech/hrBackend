@@ -133,6 +133,23 @@ public class OccupationalHealthController(
         CancellationToken cancellationToken) =>
         Respond(await cases.MoveAsync(id, request, cancellationToken), "Case moved on.");
 
+    // The spells attached to the case. A whole list, not an add and a remove: the
+    // screen shows a set of absences and hands back the set it is showing, so the two
+    // cannot drift the way a pair of endpoints lets them.
+    //
+    // The referral's own SicknessRecordId stays separate — that is the absence that
+    // triggered monitoring, which is one specific spell rather than a member of a set.
+    [HttpPut("{id:guid}/sickness-records")]
+    [ProducesResponseType<OhCaseDto>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Edit)]
+    public async Task<IActionResult> SetAbsences(
+        Guid id,
+        LinkAbsencesRequest request,
+        CancellationToken cancellationToken) =>
+        Respond(
+            await cases.SetAbsencesAsync(id, request.SicknessRecordIds, cancellationToken),
+            "Linked absences saved.");
+
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.Delete)]
@@ -269,9 +286,19 @@ public class OccupationalHealthController(
             OhRefusal.OwnerNotFound =>
                 "Name who owns it — an agreed adjustment with no owner is the one that "
                 + "quietly never happens.",
+            OhRefusal.AbsenceNotFound =>
+                "One of those absence records is not on file.",
+            OhRefusal.AbsenceBelongsToSomebodyElse =>
+                "An absence can only be linked to a case about the same person.",
             OhRefusal.NotesTooLong =>
                 $"Case notes can be at most {OhRules.MaximumNotesLength} characters.",
             _ => "That change was not accepted.",
         },
     };
+}
+
+public sealed record LinkAbsencesRequest
+{
+    // An empty list is a valid instruction: it unlinks everything.
+    public IReadOnlyList<Guid> SicknessRecordIds { get; init; } = [];
 }

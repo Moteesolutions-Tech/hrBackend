@@ -239,6 +239,111 @@ internal sealed class ApprovalService(
         };
     }
 
+    public async Task<PagedResult<ApprovalDto>> ListAsync(
+        ApprovalQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<ApprovalInstance> instances = dbContext.ApprovalInstances.AsNoTracking();
+
+        if (query.Status is ApprovalStatus status)
+        {
+            instances = instances.Where(instance => instance.Status == status);
+        }
+
+        if (Trimmed(query.DocumentType) is string documentType)
+        {
+            instances = instances.Where(instance => instance.DocumentType == documentType);
+        }
+
+        if (query.SubjectEmployeeId is Guid subject)
+        {
+            instances = instances.Where(instance => instance.SubjectEmployeeId == subject);
+        }
+
+        // The engine records the account that submitted; the screen picks a person. One
+        // employee can hold more than one account over time, so this matches on any
+        // account carrying that employee id rather than resolving to a single user.
+        if (query.RequesterEmployeeId is Guid requester)
+        {
+            instances = instances.Where(instance => dbContext.Users
+                .Any(user => user.Id == instance.SubmittedByUserId
+                    && user.EmployeeId == requester));
+        }
+
+        if (query.From is DateOnly from)
+        {
+            DateTimeOffset start = new(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+            instances = instances.Where(instance => instance.SubmittedAt >= start);
+        }
+
+        if (query.To is DateOnly to)
+        {
+            // Exclusive at the start of the following day, so the whole of the end date
+            // counts. Comparing against midnight on `to` would drop everything submitted
+            // during the last day of the range.
+            DateTimeOffset end = new(
+                to.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+            instances = instances.Where(instance => instance.SubmittedAt < end);
+        }
+
+        return await PageAsync(instances, query, cancellationToken);
+    }
+
+    public async Task<PagedResult<ApprovalDto>> MineAsync(
+        PagedQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        if (CurrentUser() is not Guid userId)
+        {
+            return Empty(query);
+        }
+
+        return await PageAsync(
+            dbContext.ApprovalInstances
+                .AsNoTracking()
+                .Where(instance => instance.SubmittedByUserId == userId),
+            query,
+            cancellationToken);
+    }
+
+    // Newest first, which is the opposite of the queue's order and deliberately so: a
+    // queue is worked oldest first, a register is read newest first because the question
+    // is what just happened.
+    //
+    // Ordered by creation rather than submission, so a draft that has never been
+    // submitted still has a place in the list instead of collecting at one end on a null.
+    private async Task<PagedResult<ApprovalDto>> PageAsync(
+        IQueryable<ApprovalInstance> instances,
+        PagedQuery query,
+        CancellationToken cancellationToken)
+    {
+        int total = await instances.CountAsync(cancellationToken);
+
+        List<ApprovalInstance> page = await instances
+            .OrderByDescending(instance => instance.CreatedAt)
+            .ThenByDescending(instance => instance.Id)
+            .Skip(query.Skip)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+
+        List<ApprovalDto> items = [];
+
+        foreach (ApprovalInstance instance in page)
+        {
+            items.Add(await ProjectAsync(instance, cancellationToken));
+        }
+
+        return new PagedResult<ApprovalDto>
+        {
+            Items = items,
+            Page = query.Page,
+            PageSize = query.PageSize,
+            TotalItems = total,
+        };
+    }
+
     public async Task<ApprovalResult> DecideAsync(
         Guid id,
         ApprovalStepStatus decision,
@@ -854,6 +959,17 @@ internal sealed class ApprovalService(
             && step.ResolvedEmployeeId is null
             && step.ResolvedRoleId is null);
 
+        // Who raised it. Read from the account rather than stored on the instance, so a
+        // name change follows the person instead of freezing at submission.
+        Submitter? submitter = instance.SubmittedByUserId is Guid submittedBy
+            ? await dbContext.Users
+                .AsNoTracking()
+                .Where(user => user.Id == submittedBy)
+                .Select(user => new Submitter(
+                    user.EmployeeId, user.FirstName + " " + user.LastName))
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
+
         return new ApprovalDto
         {
             Id = instance.Id,
@@ -861,6 +977,9 @@ internal sealed class ApprovalService(
             SubjectType = instance.SubjectType,
             SubjectId = instance.SubjectId,
             SubjectEmployeeId = instance.SubjectEmployeeId,
+            SubmittedByUserId = instance.SubmittedByUserId,
+            SubmittedByEmployeeId = submitter?.EmployeeId,
+            SubmittedByName = submitter?.Name,
             Status = instance.Status,
             Round = instance.Round,
             Steps = steps,
@@ -881,6 +1000,8 @@ internal sealed class ApprovalService(
             DecidedAt = instance.DecidedAt,
         };
     }
+
+    private sealed record Submitter(Guid? EmployeeId, string Name);
 
     private static PagedResult<ApprovalDto> Empty(PagedQuery query) => new()
     {

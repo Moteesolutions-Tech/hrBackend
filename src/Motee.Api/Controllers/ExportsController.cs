@@ -12,6 +12,14 @@ namespace Motee.Api.Controllers;
 [Authorize]
 public class ExportsController(IExportService exports) : ApiControllerBase
 {
+    // The caller's own exports. Every read here is already scoped to the requester, so
+    // there is no permission to add — listing is the one thing that was missing, and
+    // without it an export was reachable only while a client still held its id.
+    [HttpGet("mine")]
+    [ProducesResponseType<IReadOnlyList<ExportJobDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Mine(CancellationToken cancellationToken) =>
+        Ok(await exports.MineAsync(cancellationToken));
+
     [HttpGet("{id:guid}")]
     [ProducesResponseType<ExportJobDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)

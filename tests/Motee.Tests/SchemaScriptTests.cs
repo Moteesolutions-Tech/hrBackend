@@ -82,6 +82,52 @@ public partial class SchemaScriptTests
         Assert.True(quoted.Count == 0, "Quoted identifiers left in DDL: " + string.Join(", ", quoted));
     }
 
+    // Every hand-written schema file has to be safe to run twice.
+    //
+    // deploy/apply-schema.sh applies the whole set in repeated passes, tolerating
+    // failures, until a pass completes with none — that is how it copes with the files
+    // not being in dependency order. The design only works because re-running an
+    // already-applied file does nothing. One unguarded CREATE TABLE makes every pass
+    // after the first fail on it for ever, and the script reports "real errors, not
+    // ordering" about a file that is perfectly fine.
+    //
+    // Held by hand across all of them until now. This is so it stays held.
+    [Fact]
+    public void EveryDeployScriptIsSafeToRunTwice()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "deploy")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+
+        string[] files = Directory.GetFiles(
+            Path.Combine(directory.FullName, "deploy"), "schema-*.sql");
+
+        // A guard against the check quietly passing because it found nothing — an
+        // empty glob would make this test green for the wrong reason.
+        Assert.NotEmpty(files);
+
+        List<string> offenders = [];
+
+        foreach (string file in files)
+        {
+            foreach (Match match in UnguardedCreate().Matches(File.ReadAllText(file)))
+            {
+                offenders.Add($"{Path.GetFileName(file)}: {match.Value.Trim()}");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "CREATE without IF NOT EXISTS — apply-schema.sh runs every file on every "
+            + "pass, so these would fail from the second pass on: "
+            + string.Join("; ", offenders));
+    }
+
     [Fact]
     public void EveryTableAndColumnIsSnakeCase()
     {

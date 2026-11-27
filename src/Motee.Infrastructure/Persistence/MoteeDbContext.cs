@@ -76,6 +76,8 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<OhAdjustment> OhAdjustments => Set<OhAdjustment>();
 
+    public DbSet<OhReferralAbsence> OhReferralAbsences => Set<OhReferralAbsence>();
+
     public DbSet<EorProvider> EorProviders => Set<EorProvider>();
 
     public DbSet<EorEngagement> EorEngagements => Set<EorEngagement>();

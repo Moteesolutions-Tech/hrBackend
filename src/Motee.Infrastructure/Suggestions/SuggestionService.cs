@@ -295,6 +295,27 @@ internal sealed class SuggestionService(
         return SuggestionResult.Ok((await DescribeAsync([suggestion], cancellationToken))[0]);
     }
 
+    public async Task<SuggestionOutcome> RemoveAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        Suggestion? suggestion = await FindAsync(id, cancellationToken);
+
+        if (suggestion is null)
+        {
+            return SuggestionOutcome.NotFound;
+        }
+
+        // The comments and votes go with it, by the cascade already declared on both.
+        // Left behind they would be rows pointing at nothing, and the votes would keep
+        // counting towards the board average for a suggestion that is gone.
+        dbContext.Suggestions.Remove(suggestion);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return SuggestionOutcome.Succeeded;
+    }
+
     public async Task<SuggestionResult> ToggleUpvoteAsync(
         Guid id,
         CancellationToken cancellationToken = default)

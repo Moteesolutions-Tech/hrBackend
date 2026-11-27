@@ -48,6 +48,42 @@ internal sealed class OhReferralConfiguration : IEntityTypeConfiguration<OhRefer
     }
 }
 
+internal sealed class OhReferralAbsenceConfiguration
+    : IEntityTypeConfiguration<OhReferralAbsence>
+{
+    public void Configure(EntityTypeBuilder<OhReferralAbsence> builder)
+    {
+        builder.ToTable("oh_referral_absences");
+
+        builder.HasKey(link => link.Id);
+
+        // Cascade on the case: the links are part of it and mean nothing without it.
+        builder.HasOne<OhReferral>()
+            .WithMany()
+            .HasForeignKey(link => link.ReferralId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Cascade on the absence too, unlike the referral's own triggering record.
+        // That one is set null because the referral survives without it; a link is
+        // nothing but the pairing, so an absence that is gone leaves no link behind.
+        builder.HasOne<SicknessRecord>()
+            .WithMany()
+            .HasForeignKey(link => link.SicknessRecordId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // The same absence cannot be linked to the same case twice, whatever the
+        // client sends.
+        builder.HasIndex(link =>
+            new { link.TenantId, link.ReferralId, link.SicknessRecordId })
+            .IsUnique()
+            .HasDatabaseName("ix_oh_referral_absences_link");
+
+        // Asked from the absence's side: is this spell already part of a case.
+        builder.HasIndex(link => new { link.TenantId, link.SicknessRecordId })
+            .HasDatabaseName("ix_oh_referral_absences_record");
+    }
+}
+
 internal sealed class OhAdjustmentConfiguration : IEntityTypeConfiguration<OhAdjustment>
 {
     public void Configure(EntityTypeBuilder<OhAdjustment> builder)

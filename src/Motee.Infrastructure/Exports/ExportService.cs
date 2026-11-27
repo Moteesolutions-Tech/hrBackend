@@ -81,6 +81,27 @@ internal sealed class ExportService(
     // chosen by one person's permission scope, so a colleague with a narrower scope
     // must not be able to reach it by knowing its id — the tenant filter alone would
     // let them. No user, no export: a background caller has nothing to own.
+    public async Task<IReadOnlyList<ExportJobDto>> MineAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(requestContext.UserId, out Guid userId))
+        {
+            return [];
+        }
+
+        List<ExportJob> jobs = await dbContext.ExportJobs
+            .AsNoTracking()
+            .Where(job => job.RequestedByUserId == userId)
+
+            // Newest first: the one somebody is waiting on is the one they just asked
+            // for.
+            .OrderByDescending(job => job.CreatedAt)
+            .ThenByDescending(job => job.Id)
+            .ToListAsync(cancellationToken);
+
+        return [.. jobs.Select(ToDto)];
+    }
+
     private async Task<ExportJob?> MineAsync(Guid id, CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(requestContext.UserId, out Guid userId))

@@ -452,4 +452,112 @@ public class AssetServiceTests(PostgresFixture fixture)
         Assert.Equal(AssetStatus.Available, survivor.Status);
         Assert.Null(survivor.AssignedToEmployeeId);
     }
+
+    // ── what I have been issued ─────────────────────────────────────────────
+    //
+    // Every other read here is behind the assets module permission, which most
+    // employees do not hold. The self-service My Assets page was filtering the
+    // whole HR register client-side — so it worked for whoever could already
+    // read everybody's assets, and showed nothing to everybody else.
+
+    [SkippableFact]
+    public async Task MineListsOnlyWhatIsIssuedToMe()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, departmentId);
+        Guid benId = await HireAsync(provider, departmentId, "ben@acme.com");
+
+        Guid mine = (await Service(provider).CreateAsync(Request())).Asset!.Id;
+        Guid theirs = (await Service(provider)
+            .CreateAsync(Request("AST-0143", "Dell XPS", "D01Y9999"))).Asset!.Id;
+
+        Assert.True((await Service(provider)
+            .AssignAsync(mine, new AssignAssetRequest { EmployeeId = adaId })).Succeeded);
+
+        Assert.True((await Service(provider)
+            .AssignAsync(theirs, new AssignAssetRequest { EmployeeId = benId })).Succeeded);
+
+        await ActAsync(tenantId, provider, adaId);
+
+        MyAssetDto only = Assert.Single(await Service(provider).MineAsync());
+
+        Assert.Equal(mine, only.Id);
+        Assert.Equal("MacBook Pro 14", only.Name);
+        Assert.Equal("AST-0142", only.Tag);
+        Assert.Equal("C02X1234", only.SerialNumber);
+        Assert.Equal(AssetStatus.Assigned, only.Status);
+    }
+
+    [SkippableFact]
+    public async Task AReturnedAssetLeavesMyList()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, departmentId);
+        Guid assetId = (await Service(provider).CreateAsync(Request())).Asset!.Id;
+
+        Assert.True((await Service(provider)
+            .AssignAsync(assetId, new AssignAssetRequest { EmployeeId = adaId })).Succeeded);
+
+        await ActAsync(tenantId, provider, adaId);
+        Assert.Single(await Service(provider).MineAsync());
+
+        Assert.True((await Service(provider).ReturnAsync(assetId)).Succeeded);
+
+        Assert.Empty(await Service(provider).MineAsync());
+    }
+
+    // The account owner has no employee record and never will — they run the
+    // company's account rather than working there. Empty is the right answer
+    // rather than everybody's assets.
+    [SkippableFact]
+    public async Task MineIsEmptyForAnAccountWithNoEmployeeRecord()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        (Guid tenantId, Guid departmentId, ServiceProvider provider) = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, departmentId);
+        Guid assetId = (await Service(provider).CreateAsync(Request())).Asset!.Id;
+
+        Assert.True((await Service(provider)
+            .AssignAsync(assetId, new AssignAssetRequest { EmployeeId = adaId })).Succeeded);
+
+        await ActAsync(tenantId, provider, employeeId: null);
+
+        Assert.Empty(await Service(provider).MineAsync());
+    }
+
+    // Signs the provider in as the account behind an employee, creating one if
+    // this is the first time it has been asked for.
+    private async Task ActAsync(Guid tenantId, ServiceProvider provider, Guid? employeeId)
+    {
+        Guid userId = Guid.NewGuid();
+
+        await using (MoteeDbContext seed = fixture.CreateContext(tenantId))
+        {
+            seed.Users.Add(new Infrastructure.Identity.ApplicationUser
+            {
+                Id = userId,
+                TenantId = tenantId,
+                EmployeeId = employeeId,
+                FirstName = "Signed",
+                LastName = "In",
+                Email = $"user-{userId:N}@acme.com",
+                NormalizedEmail = $"USER-{userId:N}@ACME.COM",
+                EmailConfirmed = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            userId.ToString();
+    }
 }

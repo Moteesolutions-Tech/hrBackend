@@ -307,18 +307,57 @@ internal sealed class LeavePolicyService(
             holidays = holidays.Where(holiday => holiday.Date.Year == wanted);
         }
 
-        return await holidays
+        // Fetched as rows rather than projected in the database, because the exempt
+        // departments are jsonb and the names have to be resolved against them. One
+        // extra query for the whole year rather than one per holiday.
+        List<PublicHoliday> rows = await holidays
             .AsNoTracking()
             .OrderBy(holiday => holiday.Date)
-            .Select(holiday => new PublicHolidayDto
-            {
-                Id = holiday.Id,
-                Date = holiday.Date,
-                Name = holiday.Name,
-                CountryCode = holiday.CountryCode,
-            })
             .ToListAsync(cancellationToken);
+
+        return await DescribeAsync(rows, cancellationToken);
     }
+
+    private async Task<IReadOnlyList<PublicHolidayDto>> DescribeAsync(
+        IReadOnlyList<PublicHoliday> holidays,
+        CancellationToken cancellationToken)
+    {
+        if (holidays.Count == 0)
+        {
+            return [];
+        }
+
+        List<Guid> departmentIds =
+            [.. holidays.SelectMany(holiday => holiday.ExcludedDepartmentIds).Distinct()];
+
+        Dictionary<Guid, string> departments = departmentIds.Count == 0
+            ? []
+            : await dbContext.Departments
+                .AsNoTracking()
+                .Where(department => departmentIds.Contains(department.Id))
+                .ToDictionaryAsync(d => d.Id, d => d.Name, cancellationToken);
+
+        return [.. holidays.Select(holiday => Describe(holiday, departments))];
+    }
+
+    private static PublicHolidayDto Describe(
+        PublicHoliday holiday,
+        IReadOnlyDictionary<Guid, string> departments) =>
+        new()
+        {
+            Id = holiday.Id,
+            Date = holiday.Date,
+            Name = holiday.Name,
+            CountryCode = holiday.CountryCode,
+            IsNonWorking = holiday.IsNonWorking,
+            ExcludedDepartmentIds = holiday.ExcludedDepartmentIds,
+            ExcludedDepartmentNames =
+            [
+                .. holiday.ExcludedDepartmentIds
+                    .Select(id => departments.GetValueOrDefault(id))
+                    .OfType<string>(),
+            ],
+        };
 
     public async Task<PublicHolidayResult> AddHolidayAsync(
         PublicHolidayRequest request,
@@ -326,14 +365,12 @@ internal sealed class LeavePolicyService(
     {
         string? country = Trimmed(request.CountryCode)?.ToUpperInvariant();
 
-        bool exists = await dbContext.PublicHolidays.AnyAsync(
-            holiday => holiday.Date == request.Date && holiday.CountryCode == country,
-            cancellationToken);
-
-        if (exists)
+        if (await DateTakenAsync(request.Date, country, null, cancellationToken))
         {
             return PublicHolidayResult.Failed(LeavePolicyOutcome.DuplicateDate);
         }
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
 
         PublicHoliday added = new()
         {
@@ -341,21 +378,95 @@ internal sealed class LeavePolicyService(
             Date = request.Date,
             Name = request.Name.Trim(),
             CountryCode = country,
-            CreatedAt = timeProvider.GetUtcNow(),
+            IsNonWorking = request.IsNonWorking,
+            ExcludedDepartmentIds = await KnownDepartmentsAsync(request, cancellationToken),
+            CreatedAt = now,
+            UpdatedAt = now,
         };
 
         dbContext.PublicHolidays.Add(added);
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return PublicHolidayResult.Ok(new PublicHolidayDto
-        {
-            Id = added.Id,
-            Date = added.Date,
-            Name = added.Name,
-            CountryCode = added.CountryCode,
-        });
+        return PublicHolidayResult.Ok(
+            await DescribeOneAsync(added, cancellationToken));
     }
+
+    public async Task<PublicHolidayResult> UpdateHolidayAsync(
+        Guid id,
+        PublicHolidayRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        PublicHoliday? holiday = await dbContext.PublicHolidays
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (holiday is null)
+        {
+            return PublicHolidayResult.Failed(LeavePolicyOutcome.NotFound);
+        }
+
+        string? country = Trimmed(request.CountryCode)?.ToUpperInvariant();
+
+        // Excluding this row from the uniqueness check, or renaming a holiday without
+        // moving it would be refused for clashing with itself.
+        if (await DateTakenAsync(request.Date, country, id, cancellationToken))
+        {
+            return PublicHolidayResult.Failed(LeavePolicyOutcome.DuplicateDate);
+        }
+
+        holiday.Date = request.Date;
+        holiday.Name = request.Name.Trim();
+        holiday.CountryCode = country;
+        holiday.IsNonWorking = request.IsNonWorking;
+
+        // Replaced rather than mutated: the list is stored as jsonb behind a value
+        // comparer that serialises to compare, and changing it in place is not seen.
+        holiday.ExcludedDepartmentIds = await KnownDepartmentsAsync(request, cancellationToken);
+
+        holiday.UpdatedAt = timeProvider.GetUtcNow();
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return PublicHolidayResult.Ok(
+            await DescribeOneAsync(holiday, cancellationToken));
+    }
+
+    private Task<bool> DateTakenAsync(
+        DateOnly date,
+        string? country,
+        Guid? excluding,
+        CancellationToken cancellationToken) =>
+        dbContext.PublicHolidays.AnyAsync(
+            holiday => holiday.Date == date
+                && holiday.CountryCode == country
+                && (excluding == null || holiday.Id != excluding),
+            cancellationToken);
+
+    // Departments that are not ours are dropped rather than stored. An exemption naming
+    // a department that does not exist would sit in the row looking like a rule and
+    // exempt nobody, which is worse than refusing it or ignoring it visibly.
+    private async Task<IReadOnlyList<Guid>> KnownDepartmentsAsync(
+        PublicHolidayRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.ExcludedDepartmentIds.Count == 0)
+        {
+            return [];
+        }
+
+        List<Guid> wanted = [.. request.ExcludedDepartmentIds.Distinct()];
+
+        return await dbContext.Departments
+            .AsNoTracking()
+            .Where(department => wanted.Contains(department.Id))
+            .Select(department => department.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<PublicHolidayDto> DescribeOneAsync(
+        PublicHoliday holiday,
+        CancellationToken cancellationToken) =>
+        (await DescribeAsync([holiday], cancellationToken))[0];
 
     public async Task<LeavePolicyOutcome> RemoveHolidayAsync(
         Guid id,
@@ -411,6 +522,7 @@ internal sealed class LeavePolicyService(
                 Name = name,
                 CountryCode = country.Value,
                 CreatedAt = now,
+                UpdatedAt = now,
             });
         }
 

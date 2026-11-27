@@ -133,5 +133,34 @@ public class PublicHoliday : ITenantScoped
     // both sets, and an employee is charged against the one they work in.
     public string? CountryCode { get; set; }
 
+    // Whether the company actually stops. False is a day marked on the calendar that is
+    // still worked — a founding anniversary, a religious observance the company notes
+    // without closing for. The distinction has to exist somewhere: without it the only
+    // way to record such a day is as a closure, and everyone booking leave across it
+    // silently gets it free.
+    public bool IsNonWorking { get; set; } = true;
+
+    // Departments that work through this closure — support desks, security, a warehouse
+    // on a shipping deadline. Empty means the whole company stops, which is the usual
+    // case and the safe default: a day wrongly free is noticed at once, a day wrongly
+    // charged is an argument with payroll.
+    //
+    // An exemption list rather than an inclusion list, for the same reason. A new
+    // department added next year closes with everyone else instead of quietly working
+    // every public holiday because nobody added it to a list.
+    public IReadOnlyList<Guid> ExcludedDepartmentIds { get; set; } = [];
+
     public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    // Whether this day closes the office for somebody in a given department.
+    //
+    // A null department closes: not knowing where somebody works is not a reason to
+    // charge them for a company holiday, and every exemption is a named department.
+    public bool Closes(Guid? departmentId) =>
+        IsNonWorking
+        && (ExcludedDepartmentIds.Count == 0
+            || departmentId is not Guid department
+            || !ExcludedDepartmentIds.Contains(department));
 }

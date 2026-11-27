@@ -672,4 +672,64 @@ public class SuggestionServiceTests(PostgresFixture fixture)
         Assert.Empty((await Box(provider).ListAsync(new SuggestionQuery())).Items);
         Assert.Equal(0, (await Box(provider).SummaryAsync()).Total);
     }
+
+    // ── removing ────────────────────────────────────────────────────────────
+    //
+    // Every other action on a suggestion was a status change or a reply. There
+    // was no way to remove one at all, so a duplicate, or something posted to
+    // the wrong board, stayed on it for ever behind whatever status HR picked.
+
+    [SkippableFact]
+    public async Task RemovingASuggestionTakesItOffTheBoard()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        SuggestionDto suggestion = await SubmittedAsync(provider, Asking());
+
+        Assert.Equal(SuggestionOutcome.Succeeded, await Box(provider).RemoveAsync(suggestion.Id));
+
+        Assert.Empty((await Box(provider).ListAsync(new SuggestionQuery())).Items);
+        Assert.Null(await Box(provider).GetAsync(suggestion.Id));
+
+        // Off the tally too, rather than counted in a total nothing can be
+        // clicked through to.
+        Assert.Equal(0, (await Box(provider).SummaryAsync()).Total);
+    }
+
+    [SkippableFact]
+    public async Task RemovingASuggestionThatIsNotThereIsNotFound()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.Equal(SuggestionOutcome.NotFound, await Box(provider).RemoveAsync(Guid.NewGuid()));
+    }
+
+    // The comments and the votes go with it. Left behind they would be rows
+    // pointing at nothing, and the votes would keep counting towards a board
+    // average for a suggestion that is gone.
+    [SkippableFact]
+    public async Task RemovingASuggestionTakesItsCommentsAndVotes()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        SuggestionDto suggestion = await SubmittedAsync(provider, Asking());
+
+        Assert.True((await Box(provider)
+            .CommentAsync(suggestion.Id, "Tried this in 2024.", official: false)).Succeeded);
+
+        Assert.True((await Box(provider).ToggleUpvoteAsync(suggestion.Id)).Succeeded);
+
+        Assert.Equal(SuggestionOutcome.Succeeded, await Box(provider).RemoveAsync(suggestion.Id));
+
+        await using MoteeDbContext check = fixture.CreateContext(_tenantId);
+
+        Assert.Empty(check.SuggestionComments);
+        Assert.Empty(check.SuggestionVotes);
+    }
 }

@@ -13,6 +13,17 @@ public interface IExportService
 
     Task<ExportJobDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
+    // The caller's own exports, newest first.
+    //
+    // Needed because an export was reachable only by the id the request returned: a
+    // refresh lost the download, and anything handing back a job id — a report export,
+    // say — was unreachable the moment the tab reloaded.
+    //
+    // Scoped to the requester rather than the tenant, like every other read here. An
+    // export carries the filters it was run with and a file of everybody it matched,
+    // so one person's download is not another's to list.
+    Task<IReadOnlyList<ExportJobDto>> MineAsync(CancellationToken cancellationToken = default);
+
     // A fresh signed link for a caller who is still signed in. The emailed one
     // expires; this is how they get another without re-running the export.
     Task<ExportLink?> CreateLinkAsync(Guid id, CancellationToken cancellationToken = default);

@@ -361,6 +361,97 @@ internal sealed class OhService(
         return OhResult.Ok((await DescribeAsync([referral], today, cancellationToken))[0]);
     }
 
+    public async Task<OhResult> SetAbsencesAsync(
+        Guid id,
+        IReadOnlyList<Guid> sicknessRecordIds,
+        CancellationToken cancellationToken = default)
+    {
+        OhReferral? referral = await dbContext.OhReferrals
+            .FirstOrDefaultAsync(row => row.Id == id, cancellationToken);
+
+        if (referral is null)
+        {
+            return OhResult.Failed(OhOutcome.NotFound);
+        }
+
+        // The same absence twice is one link, so a client sending a list with a
+        // duplicate in it does not get the spell shown twice.
+        List<Guid> wanted = [.. sicknessRecordIds.Distinct()];
+
+        if (wanted.Count > 0)
+        {
+            // Fetched with their owner so the two refusals can be told apart. An id
+            // that is not ours and an id that is somebody else's are different
+            // mistakes, and "not found" for the second would send whoever is fixing
+            // it looking in the wrong place.
+            Dictionary<Guid, Guid> owners = await dbContext.SicknessRecords
+                .AsNoTracking()
+                .Where(record => wanted.Contains(record.Id))
+                .ToDictionaryAsync(
+                    record => record.Id, record => record.EmployeeId, cancellationToken);
+
+            if (owners.Count != wanted.Count)
+            {
+                return OhResult.Refused(OhRefusal.AbsenceNotFound);
+            }
+
+            // The rule that matters. Linking somebody else's absence here would put
+            // one person's health record on another person's file.
+            if (owners.Values.Any(employeeId => employeeId != referral.EmployeeId))
+            {
+                return OhResult.Refused(OhRefusal.AbsenceBelongsToSomebodyElse);
+            }
+        }
+
+        List<OhReferralAbsence> existing = await dbContext.OhReferralAbsences
+            .Where(link => link.ReferralId == id)
+            .ToListAsync(cancellationToken);
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+
+        // Only the difference is written. Clearing the lot and re-adding would churn
+        // every LinkedAt on a save that changed one row, and the timestamps are the
+        // record of when a spell was attached to the case.
+        foreach (OhReferralAbsence link in existing
+            .Where(link => !wanted.Contains(link.SicknessRecordId)))
+        {
+            dbContext.OhReferralAbsences.Remove(link);
+        }
+
+        HashSet<Guid> already = [.. existing.Select(link => link.SicknessRecordId)];
+
+        foreach (Guid recordId in wanted.Where(recordId => !already.Contains(recordId)))
+        {
+            dbContext.OhReferralAbsences.Add(new OhReferralAbsence
+            {
+                Id = Guid.NewGuid(),
+                TenantId = referral.TenantId,
+                ReferralId = id,
+                SicknessRecordId = recordId,
+                LinkedAt = now,
+            });
+        }
+
+        referral.UpdatedAt = now;
+
+        // The absence ids are deliberately not in the description. AuditPolicy already
+        // withholds the values on SicknessRecord and OhReferral, and spelling them into
+        // an audit line would route around that.
+        audit.Record(
+            AuditAction.Update,
+            Module,
+            $"Occupational health case {referral.ReferenceNumber}: "
+            + $"{wanted.Count} linked absence(s)",
+            entityId: referral.Id,
+            entityType: nameof(OhReferral));
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        DateOnly today = await _calendar.TodayAsync(cancellationToken);
+
+        return OhResult.Ok((await DescribeAsync([referral], today, cancellationToken))[0]);
+    }
+
     public async Task<OhResult> MoveAsync(
         Guid id,
         OhStageRequest request,
@@ -754,6 +845,11 @@ internal sealed class OhService(
             .OrderBy(adjustment => adjustment.RecommendedOn)
             .ToListAsync(cancellationToken);
 
+        // Every case's spells in one query rather than one per case, so a board of
+        // twenty-five is two queries and not twenty-six.
+        Dictionary<Guid, List<LinkedAbsenceDto>> linked =
+            await LinkedAbsencesAsync(ids, cancellationToken);
+
         List<Guid> peopleIds =
         [
             .. referrals.Select(referral => referral.EmployeeId),
@@ -806,12 +902,72 @@ internal sealed class OhService(
                             .Where(adjustment => adjustment.ReferralId == referral.Id)
                             .Select(adjustment => Describe(adjustment, people, today)),
                     ],
+                    LinkedAbsences = linked.GetValueOrDefault(referral.Id) ?? [],
                     NextAction = OhNextActions.Of(referral, today),
                     NextStages = OhStages.NextFrom(OhStages.Of(referral, today)),
                 };
             }),
         ];
     }
+
+    // The spells attached to each of a set of cases, oldest first.
+    //
+    // Joined here rather than held as a navigation property, for the same reason the
+    // adjustments are: this service reads referrals with AsNoTracking and projects them,
+    // and a lazy navigation would turn a board into a query per row.
+    private async Task<Dictionary<Guid, List<LinkedAbsenceDto>>> LinkedAbsencesAsync(
+        IReadOnlyList<Guid> referralIds,
+        CancellationToken cancellationToken)
+    {
+        List<Link> links = await dbContext.OhReferralAbsences
+            .AsNoTracking()
+            .Where(link => referralIds.Contains(link.ReferralId))
+            .Join(
+                dbContext.SicknessRecords.AsNoTracking(),
+                link => link.SicknessRecordId,
+                record => record.Id,
+                (link, record) => new Link(
+                    link.ReferralId,
+                    record.Id,
+                    record.StartDate,
+                    record.EndDate,
+                    record.Reason,
+                    record.AbsenceState))
+            .ToListAsync(cancellationToken);
+
+        return links
+            .GroupBy(link => link.ReferralId)
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                    group
+                        .OrderBy(link => link.StartDate)
+                        .ThenBy(link => link.Id)
+                        .Select(link => new LinkedAbsenceDto
+                        {
+                            Id = link.Id,
+                            StartDate = link.StartDate,
+                            EndDate = link.EndDate,
+
+                            // Inclusive of both ends. Null while somebody is still off:
+                            // an open spell has no length yet, and counting to today
+                            // would read as a closed one.
+                            Days = link.EndDate is DateOnly end
+                                ? (end.DayNumber - link.StartDate.DayNumber) + 1
+                                : null,
+                            Reason = link.Reason,
+                            State = link.State,
+                        })
+                        .ToList());
+    }
+
+    private sealed record Link(
+        Guid ReferralId,
+        Guid Id,
+        DateOnly StartDate,
+        DateOnly? EndDate,
+        SicknessReason Reason,
+        AbsenceState State);
 
     // The narrow view. Built into OhManagerView, which has nowhere to put the
     // case notes — so this path cannot leak them even if somebody edits it

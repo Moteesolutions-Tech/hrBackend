@@ -11,6 +11,7 @@ using Motee.Application.Auth;
 using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Exports;
+using Motee.Application.Onboarding;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 
@@ -21,6 +22,7 @@ namespace Motee.Api.Controllers;
 [Route("api/v{version:apiVersion}/employees")]
 public class EmployeesController(
     IEmployeeService employees,
+    IJoinerPackService joinerPacks,
     IUserPermissions userPermissions,
     IValidator<EmployeeRequest> validator) : ApiControllerBase
 {
@@ -191,6 +193,33 @@ public class EmployeesController(
         return await employees.GetAsync(id, cancellationToken) is null
             ? Failure<MedicalDto>(MoteeStatusCodes.NotFound, "Employee not found.")
             : Ok(medical ?? new MedicalDto());
+    }
+
+    // The guarantors somebody named when they joined.
+    //
+    // Read-only here on purpose: they are collected once, as a pair, on the joiner's
+    // own form, and the joiner pack is where they are written. Until now that was the
+    // only place they existed at all — the pack is reached with a one-time join token,
+    // so once it was spent the guarantors were stored and readable nowhere.
+    //
+    // Behind the employees module rather than a permission of its own: a guarantor is
+    // somebody's named referee, not health or payroll data, and it sits on the profile
+    // beside everything else that permission already covers.
+    [HttpGet("{id:guid}/guarantors")]
+    [ProducesResponseType<IReadOnlyList<GuarantorDto>>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.View)]
+    public async Task<IActionResult> Guarantors(Guid id, CancellationToken cancellationToken)
+    {
+        if (await employees.GetAsync(id, cancellationToken) is null)
+        {
+            return Failure<IReadOnlyList<GuarantorDto>>(
+                MoteeStatusCodes.NotFound, "Employee not found.");
+        }
+
+        // Empty rather than a 404 for somebody who never had a pack: a UK joiner is
+        // asked for none, and anybody added straight to the directory never filled one
+        // in. The absence is the answer, not a missing record.
+        return Ok(await joinerPacks.GuarantorsForEmployeeAsync(id, cancellationToken));
     }
 
     // Behind the row actions: Deactivate, Start Offboarding, Delete, Restore. Kept

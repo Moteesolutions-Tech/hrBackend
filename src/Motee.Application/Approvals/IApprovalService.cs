@@ -77,6 +77,20 @@ public interface IApprovalService
         PagedQuery query,
         CancellationToken cancellationToken = default);
 
+    // The register: every approval in the tenant, whoever raised it and whatever became
+    // of it. Not a queue — an approval nobody is waiting on still belongs here, and that
+    // is exactly the one no other read could find.
+    Task<PagedResult<ApprovalDto>> ListAsync(
+        ApprovalQuery query,
+        CancellationToken cancellationToken = default);
+
+    // What the signed-in account raised, in any status. "What happened to the leave I
+    // asked for" is the question, and the answer is usually something already decided —
+    // so unlike the queue, this does not stop showing an approval once it is settled.
+    Task<PagedResult<ApprovalDto>> MineAsync(
+        PagedQuery query,
+        CancellationToken cancellationToken = default);
+
     Task<ApprovalResult> DecideAsync(
         Guid id,
         ApprovalStepStatus decision,
@@ -181,6 +195,29 @@ public sealed record ApprovalTemplateStepRequest
     public Guid? RoleId { get; init; }
 
     public bool Required { get; init; } = true;
+}
+
+// What the register can be narrowed to. Every filter is optional, and the unfiltered
+// query is the screen's default view.
+public sealed record ApprovalQuery : PagedQuery
+{
+    public ApprovalStatus? Status { get; init; }
+
+    public string? DocumentType { get; init; }
+
+    // Who raised it, named by employee rather than by account. The engine records the
+    // account that submitted — but the screen picks a person from the employee list, so
+    // the resolution across happens here rather than in every client.
+    public Guid? RequesterEmployeeId { get; init; }
+
+    // Who it is about, which is a different person from the one who raised it whenever a
+    // manager submits something on somebody's behalf.
+    public Guid? SubjectEmployeeId { get; init; }
+
+    // Against the submission date. Both ends inclusive.
+    public DateOnly? From { get; init; }
+
+    public DateOnly? To { get; init; }
 }
 
 public sealed record StartApprovalRequest
@@ -300,6 +337,15 @@ public sealed record ApprovalDto
     public required Guid SubjectId { get; init; }
 
     public Guid? SubjectEmployeeId { get; init; }
+
+    // Who raised it. The account, the employee behind that account where there is one,
+    // and the name — a register with a row per submission and no column for the person
+    // who made it is the one thing the screen cannot work without.
+    public Guid? SubmittedByUserId { get; init; }
+
+    public Guid? SubmittedByEmployeeId { get; init; }
+
+    public string? SubmittedByName { get; init; }
 
     public required ApprovalStatus Status { get; init; }
 

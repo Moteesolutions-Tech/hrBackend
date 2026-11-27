@@ -40,6 +40,33 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
         CancellationToken cancellationToken) =>
         Ok(await approvals.MyQueueAsync(query, cancellationToken));
 
+    // The register: every approval in the tenant, filtered. Behind the module permission,
+    // unlike the queue — the queue is somebody's own work, this is everybody's.
+    //
+    // Needed because neither existing read could find an approval nobody is waiting on.
+    // The queue shows what is in front of you, ForSubject shows what is running against
+    // one record, and a cancelled request with no next approver appeared in neither.
+    [HttpGet]
+    [ProducesResponseType<PagedResult<ApprovalDto>>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.View)]
+    public async Task<IActionResult> List(
+        [FromQuery] ApprovalQuery query,
+        CancellationToken cancellationToken) =>
+        Ok(await approvals.ListAsync(query, cancellationToken));
+
+    // What the signed-in account raised, whatever became of it.
+    //
+    // Authorize rather than the module permission, for the same reason as the queue: this
+    // is the caller's own submissions, and gating it would hide from somebody the request
+    // they themselves sent.
+    [Authorize]
+    [HttpGet("mine")]
+    [ProducesResponseType<PagedResult<ApprovalDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Mine(
+        [FromQuery] PagedQuery query,
+        CancellationToken cancellationToken) =>
+        Ok(await approvals.MineAsync(query, cancellationToken));
+
     [HttpGet("{id:guid}")]
     [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
     [RequiresPermission(Module, PermissionAction.View)]

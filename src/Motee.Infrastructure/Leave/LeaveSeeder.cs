@@ -118,6 +118,7 @@ internal sealed class LeaveSeeder(MoteeDbContext dbContext, TimeProvider timePro
                     Name = name,
                     CountryCode = country.Value,
                     CreatedAt = now,
+                    UpdatedAt = now,
                 });
             }
         }

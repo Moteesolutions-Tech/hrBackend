@@ -35,6 +35,14 @@ public interface ILeavePolicyService
         PublicHolidayRequest request,
         CancellationToken cancellationToken = default);
 
+    // Edit one in place. Without this the only way to correct a date, a name or a
+    // department exemption was to delete the row and add another, which changes the id —
+    // so anything holding it, a calendar entry or an open screen, pointed at nothing.
+    Task<PublicHolidayResult> UpdateHolidayAsync(
+        Guid id,
+        PublicHolidayRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<LeavePolicyOutcome> RemoveHolidayAsync(
         Guid id,
         CancellationToken cancellationToken = default);
@@ -191,6 +199,13 @@ public sealed record PublicHolidayRequest
     public required string Name { get; init; }
 
     public string? CountryCode { get; init; }
+
+    // Defaults to a closure, because that is what every day on this screen was before
+    // the flag existed. An older client that does not send it keeps the behaviour it
+    // already had rather than quietly turning every holiday into a working day.
+    public bool IsNonWorking { get; init; } = true;
+
+    public IReadOnlyList<Guid> ExcludedDepartmentIds { get; init; } = [];
 }
 
 public sealed record LeaveTypeResult
@@ -289,4 +304,17 @@ public sealed record PublicHolidayDto
     public required string Name { get; init; }
 
     public string? CountryCode { get; init; }
+
+    // Whether the company stops. False is an observance that is marked and still worked.
+    public required bool IsNonWorking { get; init; }
+
+    public required IReadOnlyList<Guid> ExcludedDepartmentIds { get; init; }
+
+    // Resolved here rather than joined by the screen, the way a blackout's departments
+    // already are.
+    public required IReadOnlyList<string> ExcludedDepartmentNames { get; init; }
+
+    // Stated rather than left to the client to infer from an empty list and a boolean,
+    // which is the kind of inference that gets inverted.
+    public bool ClosesEveryone => IsNonWorking && ExcludedDepartmentIds.Count == 0;
 }

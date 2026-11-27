@@ -11,6 +11,7 @@ namespace Motee.Infrastructure.Assets;
 internal sealed class AssetService(
     MoteeDbContext dbContext,
     IRequestContext requestContext,
+    ICurrentEmployee currentEmployee,
     TimeProvider timeProvider) : IAssetService
 {
     private Guid? CurrentUser() =>
@@ -93,6 +94,35 @@ internal sealed class AssetService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return AssetResult.Ok((await GetAsync(id, cancellationToken))!);
+    }
+
+    public async Task<IReadOnlyList<MyAssetDto>> MineAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return [];
+        }
+
+        // Assigned to this person right now. Asset.AssignedToEmployeeId is the current
+        // holder; the assignment history is a separate read behind the HR permission,
+        // because what somebody used to hold is a records question rather than theirs.
+        return await dbContext.Assets
+            .AsNoTracking()
+            .Where(asset => asset.AssignedToEmployeeId == me)
+            .OrderBy(asset => asset.Name)
+            .ThenBy(asset => asset.Tag)
+            .Select(asset => new MyAssetDto
+            {
+                Id = asset.Id,
+                Tag = asset.Tag,
+                Name = asset.Name,
+                Category = asset.Category,
+                SerialNumber = asset.SerialNumber,
+                AssignedDate = asset.AssignedDate,
+                Status = asset.Status,
+            })
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<AssetResult> AssignAsync(

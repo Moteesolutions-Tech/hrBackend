@@ -775,7 +775,216 @@ public class OhServiceTests(PostgresFixture fixture)
         Assert.Equal(0, (await Oh(provider).BoardAsync(new OhCaseQuery())).TotalItems);
     }
 
+    // ── linked absences ────────────────────────────────────────────────────
+    //
+    // A case holds one triggering absence and now a set of linked ones. The
+    // screen's Link Absence tab exists because a long-running case is usually
+    // several spells rather than one — somebody off, back for a fortnight, off
+    // again — and a single SicknessRecordId could only ever name the first.
+
+    [SkippableFact]
+    public async Task SeveralAbsencesCanBeLinkedToOneCase()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+
+        Guid first = await AbsenceIdAsync(_adaId, Today.AddDays(-60), returned: true);
+        Guid second = await AbsenceIdAsync(_adaId, Today.AddDays(-30), returned: true);
+
+        OhResult linked = await Oh(provider).SetAbsencesAsync(id, [first, second]);
+
+        Assert.True(linked.Succeeded, $"{linked.Outcome} / {linked.Refusal}");
+
+        // Both, which a single SicknessRecordId could never hold — and the whole
+        // reason the frontend's Link Absence tab had nothing to call.
+        Assert.Equal(
+            [first, second],
+            linked.Case!.LinkedAbsences.Select(absence => absence.Id).ToArray());
+
+        // Still there on a fresh read, rather than only in the save's answer.
+        OhCaseDto reread = (await Oh(provider).CaseAsync(id))!;
+
+        Assert.Equal(2, reread.LinkedAbsences.Count);
+    }
+
+    [SkippableFact]
+    public async Task LinkedAbsencesComeBackOldestFirstWithTheirDayCount()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+
+        Guid recent = await AbsenceIdAsync(_adaId, Today.AddDays(-30), returned: true);
+        Guid older = await AbsenceIdAsync(_adaId, Today.AddDays(-60), returned: true);
+
+        OhResult linked = await Oh(provider).SetAbsencesAsync(id, [recent, older]);
+        Assert.True(linked.Succeeded, $"{linked.Outcome} / {linked.Refusal}");
+
+        IReadOnlyList<LinkedAbsenceDto> absences = linked.Case!.LinkedAbsences;
+
+        // A history reads forwards. Oldest first is the order the case was built
+        // up in, which is the order somebody reviewing it wants.
+        Assert.Equal(older, absences[0].Id);
+        Assert.Equal(recent, absences[1].Id);
+
+        // AbsenceAsync ends a returned spell three days after it starts, so each
+        // is a four-day absence counted inclusively.
+        Assert.Equal(Today.AddDays(-60), absences[0].StartDate);
+        Assert.Equal(Today.AddDays(-57), absences[0].EndDate);
+        Assert.Equal(4, absences[0].Days);
+    }
+
+    // Set, not add: the screen hands over the list it is showing, and anything
+    // missing from it has been unlinked.
+    [SkippableFact]
+    public async Task LinkingReplacesTheWholeList()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+
+        Guid first = await AbsenceIdAsync(_adaId, Today.AddDays(-60), returned: true);
+        Guid second = await AbsenceIdAsync(_adaId, Today.AddDays(-30), returned: true);
+
+        Assert.True((await Oh(provider).SetAbsencesAsync(id, [first, second])).Succeeded);
+
+        OhResult reduced = await Oh(provider).SetAbsencesAsync(id, [second]);
+
+        Assert.True(reduced.Succeeded, $"{reduced.Outcome} / {reduced.Refusal}");
+        Assert.Equal(second, Assert.Single(reduced.Case!.LinkedAbsences).Id);
+    }
+
+    [SkippableFact]
+    public async Task ClearingTheListLeavesNothingLinked()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+        Guid absence = await AbsenceIdAsync(_adaId, Today.AddDays(-60), returned: true);
+
+        Assert.True((await Oh(provider).SetAbsencesAsync(id, [absence])).Succeeded);
+
+        OhResult cleared = await Oh(provider).SetAbsencesAsync(id, []);
+
+        Assert.True(cleared.Succeeded, $"{cleared.Outcome} / {cleared.Refusal}");
+        Assert.Empty(cleared.Case!.LinkedAbsences);
+    }
+
+    // The rule that matters. Linking somebody else's absence to this case would
+    // put one person's health record on another person's file.
+    [SkippableFact]
+    public async Task AnAbsenceBelongingToSomebodyElseCannotBeLinked()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+
+        Guid benId = await HireAsync(provider, "Ben");
+        Guid bensAbsence = await AbsenceIdAsync(benId, Today.AddDays(-30), returned: true);
+
+        OhResult refused = await Oh(provider).SetAbsencesAsync(id, [bensAbsence]);
+
+        Assert.Equal(OhOutcome.Refused, refused.Outcome);
+
+        // Told apart from an id that simply is not ours: they are different mistakes,
+        // and "not found" would send whoever is fixing it looking in the wrong place.
+        Assert.Equal(OhRefusal.AbsenceBelongsToSomebodyElse, refused.Refusal);
+    }
+
+    [SkippableFact]
+    public async Task AnAbsenceThatIsNotThereCannotBeLinked()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+
+        OhResult refused = await Oh(provider).SetAbsencesAsync(id, [Guid.NewGuid()]);
+
+        Assert.Equal(OhOutcome.Refused, refused.Outcome);
+    }
+
+    [SkippableFact]
+    public async Task LinkingAgainstACaseThatIsNotThereIsNotFound()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        OhResult missing = await Oh(provider).SetAbsencesAsync(Guid.NewGuid(), []);
+
+        Assert.Equal(OhOutcome.NotFound, missing.Outcome);
+    }
+
+    // The same absence twice is one link. The screen can send a list with a
+    // duplicate in it and the case does not then show the spell twice.
+    [SkippableFact]
+    public async Task TheSameAbsenceTwiceIsLinkedOnce()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+        Guid absence = await AbsenceIdAsync(_adaId, Today.AddDays(-30), returned: true);
+
+        OhResult linked = await Oh(provider).SetAbsencesAsync(id, [absence, absence]);
+
+        Assert.True(linked.Succeeded, $"{linked.Outcome} / {linked.Refusal}");
+        Assert.Single(linked.Case!.LinkedAbsences);
+    }
+
+    // Deleting the case takes its links with it rather than leaving rows
+    // pointing at a referral that is gone.
+    [SkippableFact]
+    public async Task RemovingACaseRemovesItsLinks()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await ReferredAsync(provider);
+        Guid absence = await AbsenceIdAsync(_adaId, Today.AddDays(-30), returned: true);
+
+        Assert.True((await Oh(provider).SetAbsencesAsync(id, [absence])).Succeeded);
+        Assert.Equal(OhOutcome.Succeeded, await Oh(provider).RemoveAsync(id));
+
+        await using MoteeDbContext check = fixture.CreateContext(_tenantId);
+
+        Assert.Empty(check.OhReferralAbsences);
+    }
+
     // ── arrange ────────────────────────────────────────────────────────────
+
+    private async Task<Guid> AbsenceIdAsync(
+        Guid employeeId,
+        DateOnly start,
+        bool returned = false)
+    {
+        await using MoteeDbContext seed = fixture.CreateContext(_tenantId);
+
+        Guid id = Guid.NewGuid();
+
+        seed.SicknessRecords.Add(new SicknessRecord
+        {
+            Id = id,
+            TenantId = _tenantId,
+            EmployeeId = employeeId,
+            StartDate = start,
+            EndDate = returned ? start.AddDays(3) : null,
+            AbsenceState = returned ? AbsenceState.Returned : AbsenceState.Ongoing,
+            ApprovalStatus = SicknessApprovalStatus.Approved,
+            CreatedAt = _clock.GetUtcNow(),
+            UpdatedAt = _clock.GetUtcNow(),
+        });
+
+        await seed.SaveChangesAsync();
+
+        return id;
+    }
 
     private async Task<ServiceProvider> ArrangeAsync()
     {

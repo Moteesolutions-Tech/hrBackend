@@ -394,4 +394,55 @@ public class EmployeeExportTests(PostgresFixture fixture)
         Assert.Equal(3, row.RowCount);
         Assert.StartsWith($"exports/{tenantId:N}/", row.FileKey!, StringComparison.Ordinal);
     }
+
+    // ── my exports ──────────────────────────────────────────────────────────
+    //
+    // There was no way to list them. An export was reachable only by the id the
+    // request returned, so refreshing the page lost the download — and a report
+    // export handed back as a job id is unreachable the moment the tab reloads.
+
+    [SkippableFact]
+    public async Task MineListsTheExportsIAskedFor()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        (_, ServiceProvider provider) = await ArrangeAsync();
+
+        ExportJobDto first = await Exports(provider).RequestEmployeeExportAsync(AllScope());
+        ExportJobDto second = await Exports(provider).RequestEmployeeExportAsync(AllScope());
+
+        IReadOnlyList<ExportJobDto> mine = await Exports(provider).MineAsync();
+
+        // Newest first: the one somebody is waiting on is the one they just asked for.
+        Assert.Equal(2, mine.Count);
+        Assert.Equal(second.Id, mine[0].Id);
+        Assert.Equal(first.Id, mine[1].Id);
+    }
+
+    [SkippableFact]
+    public async Task MineDoesNotShowSomebodyElsesExports()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        (_, ServiceProvider provider) = await ArrangeAsync();
+
+        await Exports(provider).RequestEmployeeExportAsync(AllScope());
+
+        // An export carries the filters it was run with and a file of everybody
+        // it matched, so one person's download is not another's to list.
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            Guid.NewGuid().ToString();
+
+        Assert.Empty(await Exports(provider).MineAsync());
+    }
+
+    [SkippableFact]
+    public async Task MineIsEmptyBeforeAnythingHasBeenExported()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+
+        (_, ServiceProvider provider) = await ArrangeAsync();
+
+        Assert.Empty(await Exports(provider).MineAsync());
+    }
 }
