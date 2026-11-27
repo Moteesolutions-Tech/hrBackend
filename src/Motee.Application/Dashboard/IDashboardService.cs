@@ -64,6 +64,86 @@ public interface IDashboardService
     // delegation cannot drift from what the other screens show, a
     // reimplementation can.
     Task<MyDashboardDto> MineAsync(CancellationToken cancellationToken = default);
+
+    // Everything outstanding that somebody in HR has to do something about,
+    // grouped the way the Action Centre groups it.
+    //
+    // Derived on every read and stored nowhere. An alerts table would need
+    // something to write it and something to clear it, and the thing that
+    // clears "missing emergency contact" is somebody filling the field in on a
+    // different screen — which would never come back to delete a row. So the
+    // list is recomputed, and an item disappears because the reason for it did.
+    Task<HrActionsDashboardDto> HrActionsAsync(CancellationToken cancellationToken = default);
+}
+
+// ── HR actions ──────────────────────────────────────────────────────────────
+
+public enum HrActionSeverity
+{
+    // Somebody cannot be paid, cannot legally work, or a deadline has passed.
+    Critical,
+
+    // A deadline is coming, or something is sitting with nobody.
+    Warning,
+
+    // Worth tidying. Nothing breaks today.
+    Info,
+}
+
+public sealed record HrActionsDashboardDto
+{
+    public required DateOnly AsOf { get; init; }
+
+    public required int Total { get; init; }
+
+    // Counted here rather than left to the client to tally, because the three
+    // tiles above the list and the list itself must agree, and a client
+    // filtering a truncated list would undercount.
+    public required int Critical { get; init; }
+
+    public required int Warning { get; init; }
+
+    public required int Info { get; init; }
+
+    public required IReadOnlyList<HrActionCategoryDto> Categories { get; init; }
+}
+
+public sealed record HrActionCategoryDto
+{
+    // The screen's own category key — right_to_work, compliance, payroll. No
+    // label or icon: it already has both, and a second copy would be a second
+    // vocabulary to keep in step.
+    public required string Key { get; init; }
+
+    // Every item in the category, which may exceed what Actions carries.
+    public required int Count { get; init; }
+
+    public required IReadOnlyList<HrActionDto> Actions { get; init; }
+}
+
+public sealed record HrActionDto
+{
+    // Derived from what the item is — "review-overdue:{id}" — so a list that
+    // re-renders keeps its keys. Most of these have no row of their own.
+    public required string Id { get; init; }
+
+    public required string Title { get; init; }
+
+    // Who or what, in a few words: "Ada Okafor · Engineering".
+    public string? Detail { get; init; }
+
+    public required HrActionSeverity Severity { get; init; }
+
+    // Where it is actioned. The screen deep-links from the row, and an alert
+    // somebody cannot click through to is one they have to go hunting for.
+    public string? Href { get; init; }
+
+    // Negative when overdue. Null when the item has no date at all — an
+    // unfilled field is not late, and inventing a deadline for it would make
+    // every row look like a countdown.
+    public int? DueInDays { get; init; }
+
+    public Guid? EmployeeId { get; init; }
 }
 
 // ── self-service ────────────────────────────────────────────────────────────

@@ -210,7 +210,22 @@ public class EmployeesController(
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Guarantors(Guid id, CancellationToken cancellationToken)
     {
-        if (await employees.GetAsync(id, cancellationToken) is null)
+        // Narrowed through the same reach as the profile, and this is not optional.
+        //
+        // SelfServicePolicy grants every signed-in employee View on this module at Self
+        // scope, so the permission attribute alone lets anybody past — it says they may
+        // read an employee, not which one. Without this check any member of staff could
+        // read any colleague's guarantors by putting their id in the URL, and a
+        // guarantor is an external person's name, address and phone number.
+        //
+        // It is also what makes this endpoint serve self-service: Self scope reaches the
+        // caller's own record, so somebody reading their own guarantors on My Profile
+        // needs no separate /employees/me route.
+        IReadOnlyList<EmployeeListItemDto> reachable = await employees.ExportAsync(
+            new EmployeeQuery { Scope = GrantedScope(), ViewerEmployeeId = ViewerEmployeeId() },
+            cancellationToken);
+
+        if (!reachable.Any(employee => employee.Id == id))
         {
             return Failure<IReadOnlyList<GuarantorDto>>(
                 MoteeStatusCodes.NotFound, "Employee not found.");
