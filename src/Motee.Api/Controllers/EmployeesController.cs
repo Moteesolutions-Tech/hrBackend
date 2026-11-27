@@ -237,6 +237,34 @@ public class EmployeesController(
         return Ok(await joinerPacks.GuarantorsForEmployeeAsync(id, cancellationToken));
     }
 
+    // The log of what this person has asked to have corrected, and what was decided.
+    //
+    // Narrowed through the same reach as the profile, and for the same reason the
+    // guarantors read is: SelfServicePolicy grants every signed-in employee View on
+    // this module at Self scope, so the attribute alone says somebody may read an
+    // employee without saying which one. The narrowing is also what lets this serve
+    // My Profile — Self scope reaches the caller's own record.
+    [HttpGet("{id:guid}/change-requests")]
+    [ProducesResponseType<IReadOnlyList<ChangeRequestDto>>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.View)]
+    public async Task<IActionResult> ChangeRequests(
+        Guid id,
+        [FromServices] IChangeRequestService changeRequests,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<EmployeeListItemDto> reachable = await employees.ExportAsync(
+            new EmployeeQuery { Scope = GrantedScope(), ViewerEmployeeId = ViewerEmployeeId() },
+            cancellationToken);
+
+        if (!reachable.Any(employee => employee.Id == id))
+        {
+            return Failure<IReadOnlyList<ChangeRequestDto>>(
+                MoteeStatusCodes.NotFound, "Employee not found.");
+        }
+
+        return Ok(await changeRequests.ForEmployeeAsync(id, cancellationToken));
+    }
+
     // Behind the row actions: Deactivate, Start Offboarding, Delete, Restore. Kept
     // apart from Update so a status change is a deliberate act, not something that
     // rides along with a form save.

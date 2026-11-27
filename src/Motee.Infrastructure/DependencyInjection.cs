@@ -239,6 +239,7 @@ public static class DependencyInjection
         services.AddScoped<IAssetService, AssetService>();
         services.AddScoped<AvatarLinker>();
         services.AddScoped<IEmployeeService, EmployeeService>();
+        services.AddScoped<IChangeRequestService, Employees.ChangeRequestService>();
         services.AddScoped<IEmployeeImportService, EmployeeImportService>();
         services.AddScoped<IEmployeeInvitationService, EmployeeInvitationService>();
         services.AddScoped<IExportService, ExportService>();

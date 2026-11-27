@@ -90,6 +90,9 @@ public class MoteeDbContext(DbContextOptions<MoteeDbContext> options, ICurrentTe
 
     public DbSet<Employee> Employees => Set<Employee>();
 
+    public DbSet<EmployeeChangeRequest> EmployeeChangeRequests =>
+        Set<EmployeeChangeRequest>();
+
     public DbSet<EmployeeInvitation> EmployeeInvitations => Set<EmployeeInvitation>();
 
     public DbSet<WorkSchedule> WorkSchedules => Set<WorkSchedule>();
