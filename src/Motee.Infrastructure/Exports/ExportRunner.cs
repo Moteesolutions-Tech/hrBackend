@@ -10,6 +10,7 @@ using Motee.Application.Notifications;
 using Motee.Application.Reports;
 using Motee.Application.Tenancy;
 using Motee.Domain.Exports;
+using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Exports;
@@ -133,7 +134,16 @@ internal sealed class ExportRunner(
             ?? throw new InvalidOperationException(
                 $"Report dataset '{filters.Dataset}' no longer exists.");
 
-        IReadOnlyList<ReportColumn> columns = ReportCatalogue.Resolve(dataset, filters.Columns);
+        // Over the dataset's columns, because the stored keys are already the gated
+        // subset — resolving cannot widen them, and anything no longer in the catalogue
+        // is dropped.
+        IReadOnlyList<ReportColumn> columns =
+            ReportCatalogue.Resolve(dataset.Columns, filters.Columns);
+
+        // The tenant's own today, for the columns derived against it — age and tenure.
+        // Taken from the job's tenant rather than UTC, because a company in Lagos
+        // exporting at 23:30 UTC is already on tomorrow.
+        DateOnly asOf = await TodayAsync(job.TenantId, cancellationToken);
 
         StringBuilder csv = new();
         csv.Append(ReportCsvWriter.Header(columns));
@@ -149,6 +159,7 @@ internal sealed class ExportRunner(
                 filters.ViewerEmployeeId,
                 filters.Filters,
                 new PagedQuery { Page = page, PageSize = PageSize },
+                asOf,
                 cancellationToken);
 
             foreach (IReadOnlyDictionary<string, string?> row in result.Items)
@@ -166,6 +177,24 @@ internal sealed class ExportRunner(
         }
 
         return (csv.ToString(), rows, dataset.Key);
+    }
+
+    // By id, because tenants are not themselves tenant-scoped and there is no request
+    // here to make one ambient for this read.
+    //
+    // Settings is fetched whole rather than projected to its time zone: it is jsonb
+    // behind a value converter, and selecting into a field of it does not reach the
+    // column. That has been a bug elsewhere in this codebase.
+    private async Task<DateOnly> TodayAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        TenantSettings? settings = await dbContext.Tenants
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(tenant => tenant.Id == tenantId)
+            .Select(tenant => tenant.Settings)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return TenantClock.DayOf(timeProvider.GetUtcNow(), settings?.TimeZoneId);
     }
 
     private async Task<(string Csv, int Rows)> BuildCsvAsync(

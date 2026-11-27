@@ -6,6 +6,8 @@ using Motee.Application.Employees;
 using Motee.Application.Leave;
 using Motee.Application.Organisation;
 using Motee.Application.Reports;
+using Motee.Domain.Authorization;
+using Motee.Domain.Contracts;
 using Motee.Domain.Employees;
 using Motee.Domain.Organisation;
 using Motee.Infrastructure.Identity;
@@ -76,7 +78,13 @@ public class ReportServiceTests(PostgresFixture fixture)
         ServiceProvider provider,
         string first,
         Guid departmentId,
-        Guid? managerId = null) =>
+        Guid? managerId = null,
+        DateOnly? dateOfBirth = null,
+        string? gender = null,
+        string? grade = null,
+        Guid? branchId = null,
+        string? workLocation = null,
+        DateOnly? startDate = null) =>
         (await Resolve<IEmployeeService>(provider).CreateAsync(new EmployeeRequest
         {
             FirstName = first,
@@ -88,7 +96,12 @@ public class ReportServiceTests(PostgresFixture fixture)
             EmploymentType = EmploymentType.FullTime,
             Status = EmployeeStatus.Active,
             ManagerId = managerId,
-            StartDate = new DateOnly(2021, 1, 10),
+            DateOfBirth = dateOfBirth,
+            Gender = gender,
+            Grade = grade,
+            BranchId = branchId,
+            WorkLocation = workLocation,
+            StartDate = startDate ?? new DateOnly(2021, 1, 10),
         })).Employee!.Id;
 
     private static Task<ReportRunResult> RunAsync(
@@ -162,21 +175,21 @@ public class ReportServiceTests(PostgresFixture fixture)
         await HireAsync(provider, "Ada", _engineeringId);
 
         ReportRunResult run = await RunAsync(
-            provider, "employees", columns: ["department", "name"]);
+            provider, "employees", columns: ["department", "fullName"]);
 
         Assert.True(run.Succeeded, run.Outcome.ToString());
 
         ReportTableDto table = run.Table!;
 
-        Assert.Equal(["department", "name"], table.Columns.Select(c => c.Key).ToArray());
+        Assert.Equal(["department", "fullName"], table.Columns.Select(c => c.Key).ToArray());
 
         IReadOnlyDictionary<string, string?> row = Assert.Single(table.Rows.Items);
 
         // Only what was asked for. Building every column and letting the client pick
         // would put a phone number in a payload somebody deliberately left out.
-        Assert.Equal(["department", "name"], row.Keys.Order().ToArray().Order().ToArray());
+        Assert.Equal(["department", "fullName"], row.Keys.Order().ToArray().Order().ToArray());
         Assert.Equal("Engineering", row["department"]);
-        Assert.Equal("Ada Adeyemi", row["name"]);
+        Assert.Equal("Ada Adeyemi", row["fullName"]);
     }
 
     [SkippableFact]
@@ -212,7 +225,7 @@ public class ReportServiceTests(PostgresFixture fixture)
 
         IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
 
-        Assert.Equal("Ada Adeyemi", row["name"]);
+        Assert.Equal("Ada Adeyemi", row["fullName"]);
     }
 
     // Case-insensitive, because a filter carries what somebody typed.
@@ -364,6 +377,366 @@ public class ReportServiceTests(PostgresFixture fixture)
                 NormalizedEmail = $"{handle.ToUpperInvariant()}@ACME.COM",
                 EmailConfirmed = true,
                 CreatedAt = DateTimeOffset.UtcNow,
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            userId.ToString();
+    }
+
+    // ── the columns the reports screen reads ────────────────────────────────
+
+    // Derived against the tenant's own today rather than stored, so a birthday does not
+    // need a nightly job to become true. Pinned with dates relative to today so the
+    // test does not quietly start failing next year.
+    [SkippableFact]
+    public async Task AgeAndTenureAreDerivedRatherThanStored()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        await HireAsync(
+            provider,
+            "Ada",
+            _engineeringId,
+            dateOfBirth: today.AddYears(-30),
+            startDate: today.AddYears(-2));
+
+        ReportRunResult run = await RunAsync(
+            provider, "employees", columns: ["age", "tenureYears"]);
+
+        Assert.True(run.Succeeded, run.Outcome.ToString());
+
+        IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
+
+        Assert.Equal("30", row["age"]);
+        Assert.Equal("2", row["tenureYears"]);
+    }
+
+    // Empty rather than "0". The age breakdown buckets this column, and a missing date
+    // of birth landing in the under-twenties is a chart that is wrong rather than
+    // incomplete.
+    [SkippableFact]
+    public async Task AMissingDateOfBirthGivesNoAgeRatherThanZero()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada", _engineeringId);
+
+        ReportRunResult run = await RunAsync(provider, "employees", columns: ["age"]);
+
+        Assert.Equal(string.Empty, Assert.Single(run.Table!.Rows.Items)["age"]);
+    }
+
+    [SkippableFact]
+    public async Task GenderAndGradeComeThrough()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(
+            provider, "Ada", _engineeringId, gender: "Female", grade: "G7");
+
+        ReportRunResult run = await RunAsync(
+            provider, "employees", columns: ["gender", "grade"]);
+
+        IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
+
+        Assert.Equal("Female", row["gender"]);
+        Assert.Equal("G7", row["grade"]);
+    }
+
+    // Branch region, then branch city, then the employee's own work location — the
+    // chain the reports screen uses, so a region chart drawn from this agrees with it.
+    [SkippableFact]
+    public async Task RegionPrefersTheBranchAndFallsBackToTheWorkLocation()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid lagos = (await Resolve<IBranchService>(provider).CreateAsync(new BranchRequest
+        {
+            Name = "Lagos Office",
+            Code = "LAG",
+            City = "Lagos",
+            Region = "South West",
+        })).Branch!.Id;
+
+        // A branch with a city but no region, to prove the fallback rather than assume
+        // it.
+        Guid abuja = (await Resolve<IBranchService>(provider).CreateAsync(new BranchRequest
+        {
+            Name = "Abuja Office",
+            Code = "ABJ",
+            City = "Abuja",
+        })).Branch!.Id;
+
+        await HireAsync(provider, "Ada", _engineeringId, branchId: lagos);
+        await HireAsync(provider, "Ben", _engineeringId, branchId: abuja);
+        await HireAsync(provider, "Cara", _engineeringId, workLocation: "Remote — Kenya");
+        await HireAsync(provider, "Dele", _engineeringId);
+
+        ReportRunResult run = await RunAsync(
+            provider, "employees", columns: ["fullName", "region"]);
+
+        Dictionary<string, string?> byName = run.Table!.Rows.Items
+            .ToDictionary(row => row["fullName"]!, row => row["region"]);
+
+        Assert.Equal("South West", byName["Ada Adeyemi"]);
+        Assert.Equal("Abuja", byName["Ben Adeyemi"]);
+        Assert.Equal("Remote — Kenya", byName["Cara Adeyemi"]);
+
+        // Honest bucket rather than a blank slice in a region chart.
+        Assert.Equal("Unspecified", byName["Dele Adeyemi"]);
+    }
+
+    // ── pay ─────────────────────────────────────────────────────────────────
+
+    [SkippableFact]
+    public async Task PayComesFromTheActiveContract()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ContractAsync(adaId, 4_200_000m, ContractStatus.Active, new DateOnly(2021, 1, 10));
+
+        ReportRunResult run = await RunAsync(provider, "employees", columns: ["salary"]);
+
+        Assert.Equal("4200000", Assert.Single(run.Table!.Rows.Items)["salary"]);
+    }
+
+    // Null rather than 0. Somebody whose pay is not recorded has not been recorded as
+    // earning nothing, and an average that counts them as zero is wrong.
+    [SkippableFact]
+    public async Task SomebodyWithNoContractHasNoSalaryRatherThanZero()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada", _engineeringId);
+
+        ReportRunResult run = await RunAsync(provider, "employees", columns: ["salary"]);
+
+        Assert.Null(Assert.Single(run.Table!.Rows.Items)["salary"]);
+    }
+
+    // A draft is a proposal. Reporting it as pay would put an unsigned offer into the
+    // payroll column of a spreadsheet.
+    [SkippableFact]
+    public async Task ADraftContractIsNotPay()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ContractAsync(adaId, 9_000_000m, ContractStatus.Draft, new DateOnly(2026, 1, 1));
+
+        ReportRunResult run = await RunAsync(provider, "employees", columns: ["salary"]);
+
+        Assert.Null(Assert.Single(run.Table!.Rows.Items)["salary"]);
+    }
+
+    // The latest active one, because a renewal signed before the old contract ends is
+    // the ordinary case and the new terms are the ones that answer "what do they earn".
+    [SkippableFact]
+    public async Task TheMostRecentActiveContractWins()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ContractAsync(adaId, 3_000_000m, ContractStatus.Active, new DateOnly(2021, 1, 10));
+        await ContractAsync(adaId, 5_500_000m, ContractStatus.Active, new DateOnly(2025, 4, 1));
+
+        ReportRunResult run = await RunAsync(provider, "employees", columns: ["salary"]);
+
+        Assert.Equal("5500000", Assert.Single(run.Table!.Rows.Items)["salary"]);
+    }
+
+    // The reason the per-column gate exists. The reports screen declares Annual Salary
+    // on a report gated by organization.employees, so as specified anybody who can open
+    // the staff list reads everyone's pay. Salary is recorded on the contract, so the
+    // permission that governs it is operations.contracts.
+    //
+    // The column goes and the rows stay: this manager still gets the roster.
+    [SkippableFact]
+    public async Task PayIsNotInTheTableForSomebodyWhoCannotReadContracts()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ContractAsync(adaId, 4_200_000m, ContractStatus.Active, new DateOnly(2021, 1, 10));
+
+        await ActWithLevelAsync(provider, adaId, "ada", "organization.employees");
+
+        ReportRunResult run = await RunAsync(provider, "employees");
+
+        Assert.True(run.Succeeded, run.Outcome.ToString());
+
+        ReportTableDto table = run.Table!;
+
+        Assert.DoesNotContain(
+            "salary", table.Columns.Select(column => column.Key), StringComparer.Ordinal);
+
+        // Not in the rows either, not merely absent from the column list.
+        Assert.DoesNotContain(
+            "salary", Assert.Single(table.Rows.Items).Keys, StringComparer.Ordinal);
+
+        // And the report still works.
+        Assert.Contains(
+            "fullName", table.Columns.Select(column => column.Key), StringComparer.Ordinal);
+    }
+
+    // Named explicitly, to be sure the gate is not only a default.
+    [SkippableFact]
+    public async Task AskingForPayWithoutContractAccessDoesNotProduceIt()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ContractAsync(adaId, 4_200_000m, ContractStatus.Active, new DateOnly(2021, 1, 10));
+
+        await ActWithLevelAsync(provider, adaId, "ada", "organization.employees");
+
+        ReportRunResult run = await RunAsync(
+            provider, "employees", columns: ["fullName", "salary"]);
+
+        Assert.Equal(["fullName"], run.Table!.Columns.Select(column => column.Key).ToArray());
+    }
+
+    // And a filter on it is refused rather than honoured, because filtering a hidden
+    // column leaks it by halves: narrow above 5,000,000, count the rows, repeat.
+    [SkippableFact]
+    public async Task FilteringOnPayWithoutContractAccessIsRefused()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ActWithLevelAsync(provider, adaId, "ada", "organization.employees");
+
+        ReportRunResult run = await RunAsync(
+            provider,
+            "employees",
+            filters: new Dictionary<string, string?> { ["salary"] = "4200000" });
+
+        Assert.Equal(ReportOutcome.NotFilterable, run.Outcome);
+        Assert.Equal("salary", run.Column);
+    }
+
+    [SkippableFact]
+    public async Task PayIsInTheTableForSomebodyWhoCanReadContracts()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await ContractAsync(adaId, 4_200_000m, ContractStatus.Active, new DateOnly(2021, 1, 10));
+
+        await ActWithLevelAsync(
+            provider, adaId, "ada", "organization.employees", "operations.contracts");
+
+        ReportRunResult run = await RunAsync(provider, "employees", columns: ["salary"]);
+
+        Assert.True(run.Succeeded, run.Outcome.ToString());
+        Assert.Equal("4200000", Assert.Single(run.Table!.Rows.Items)["salary"]);
+    }
+
+    private async Task ContractAsync(
+        Guid employeeId,
+        decimal salary,
+        ContractStatus status,
+        DateOnly startDate)
+    {
+        await using MoteeDbContext seed = fixture.CreateContext(_tenantId);
+
+        seed.Contracts.Add(new Contract
+        {
+            Id = Guid.NewGuid(),
+            TenantId = _tenantId,
+            EmployeeId = employeeId,
+            Title = "Employment contract",
+            ContractType = ContractType.Employment,
+            Status = status,
+            StartDate = startDate,
+            Salary = salary,
+            Currency = "NGN",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await seed.SaveChangesAsync();
+    }
+
+    // A user holding one custom level at All scope over the named modules, so the gate
+    // can be tested without the owner's blanket access.
+    private async Task ActWithLevelAsync(
+        ServiceProvider provider,
+        Guid employeeId,
+        string handle,
+        params string[] modules)
+    {
+        Guid userId = Guid.NewGuid();
+        Guid levelId = Guid.NewGuid();
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            seed.Users.Add(new ApplicationUser
+            {
+                Id = userId,
+                TenantId = _tenantId,
+                EmployeeId = employeeId,
+                FirstName = handle,
+                LastName = "Adeyemi",
+                Email = $"{handle}-level@acme.com",
+                NormalizedEmail = $"{handle.ToUpperInvariant()}-LEVEL@ACME.COM",
+                EmailConfirmed = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+
+            seed.AccessLevels.Add(new AccessLevel
+            {
+                Id = levelId,
+                TenantId = _tenantId,
+                Name = $"{handle} level",
+                Kind = AccessLevelKind.Custom,
+                Status = AccessLevelStatus.Active,
+                Scope = DataScope.Everything,
+                Permissions =
+                [
+                    .. modules.Select(module => new ModulePermission
+                    {
+                        Module = module,
+                        Access = true,
+                        Actions = [PermissionAction.View],
+                    }),
+                ],
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            });
+
+            seed.UserAccessLevels.Add(new UserAccessLevel
+            {
+                Id = Guid.NewGuid(),
+                TenantId = _tenantId,
+                UserId = userId,
+                AccessLevelId = levelId,
+                AssignedAt = DateTimeOffset.UtcNow,
             });
 
             await seed.SaveChangesAsync();
