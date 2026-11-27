@@ -1,10 +1,16 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Attendance;
+using Motee.Application.Common;
 using Motee.Application.Dashboard;
+using Motee.Application.Leave;
 using Motee.Application.Tenancy;
 using Motee.Domain.Approvals;
+using Motee.Application.Work;
 using Motee.Domain.Attendance;
 using Motee.Domain.Common;
+using Motee.Domain.Documents;
+using Motee.Domain.Learning;
+using Motee.Domain.Work;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
@@ -32,9 +38,23 @@ namespace Motee.Infrastructure.Dashboard;
 internal sealed class DashboardService(
     MoteeDbContext dbContext,
     IAttendanceService attendance,
+    ILeaveBalanceService leaveBalances,
+    ITaskService taskList,
+    ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
     TimeProvider timeProvider) : IDashboardService
 {
+    // The seeded annual type's code. Sick leave is reported rather than booked,
+    // so nobody is at risk of failing to use it.
+    private const string AnnualLeaveCode = "annual";
+
+    // A pending leave request inside this many days is urgent: starting before
+    // it has been decided is the thing nobody can plan around.
+    private const int LeaveDecisionWarningDays = 7;
+
+    // A course is worth surfacing before it is late, not only after.
+    private const int CourseWarningDays = 7;
+
     // How far back the headcount chart and the leave tiles look.
     private const int TrendMonths = 12;
 
@@ -678,6 +698,312 @@ internal sealed class DashboardService(
 
     private static LifecycleStageDto Stage(string key, int count) =>
         new() { Key = key, Count = count };
+
+    // ── self-service ────────────────────────────────────────────────────────
+
+    public async Task<MyDashboardDto> MineAsync(CancellationToken cancellationToken = default)
+    {
+        DateOnly today = await TodayAsync(cancellationToken);
+
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            // The account owner permanently has no employee record: they run
+            // the company's account rather than working there. An empty day is
+            // the right answer, not a 404 on a page they can open.
+            return new MyDashboardDto
+            {
+                AsOf = today,
+                Today = Empty(),
+                Pending = [],
+                TeamOnLeave = [],
+            };
+        }
+
+        // Delegated, both of them. The dashboard's clock and the attendance
+        // screen's clock are then the same answer by construction, and the task
+        // counts match the task page's.
+        AttendanceDayDto? day = await attendance.MineAsync(today, cancellationToken);
+        TaskTally tasks = await taskList.SummaryAsync(cancellationToken);
+
+        LeaveOnDay? mine = await LeaveOnAsync(me, today, cancellationToken);
+
+        List<MyPendingItemDto> pending = await PendingAsync(me, today, cancellationToken);
+
+        return new MyDashboardDto
+        {
+            AsOf = today,
+            Today = new MyDayDto
+            {
+                Clock = day?.State ?? ClockState.NotStarted,
+                ClockedInAt = day?.ClockInAt,
+                WorkedHours = day?.WorkedHours ?? 0m,
+                OnLeave = mine?.LeaveType,
+                TasksOutstanding = tasks.Outstanding,
+                TasksOverdue = tasks.Overdue,
+                PendingActions = pending.Count,
+            },
+            Pending = pending,
+            TeamOnLeave = await TeamOnLeaveAsync(me, today, cancellationToken),
+        };
+    }
+
+    private static MyDayDto Empty() => new()
+    {
+        Clock = ClockState.NotStarted,
+        WorkedHours = 0m,
+        TasksOutstanding = 0,
+        TasksOverdue = 0,
+        PendingActions = 0,
+    };
+
+    private sealed record LeaveOnDay(string LeaveType, DateOnly EndDate);
+
+    // Approved leave covering a day. Pending leave is not being on leave: the
+    // days are reserved against the balance, but somebody awaiting a decision
+    // is at their desk.
+    private async Task<LeaveOnDay?> LeaveOnAsync(
+        Guid employeeId,
+        DateOnly day,
+        CancellationToken cancellationToken) =>
+        await dbContext.LeaveRequests
+            .AsNoTracking()
+            .Where(request => request.EmployeeId == employeeId
+                && request.Status == LeaveRequestStatus.Approved
+                && request.StartDate <= day
+                && request.EndDate >= day)
+            .Select(request => new LeaveOnDay(
+                dbContext.LeaveTypes
+                    .Where(type => type.Id == request.LeaveTypeId)
+                    .Select(type => type.Name)
+                    .FirstOrDefault() ?? "Leave",
+                request.EndDate))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    // Who else on the team is off today.
+    //
+    // "The team" is whoever shares a line manager, plus the manager — which is
+    // what somebody means by it, and avoids a department-wide list in a company
+    // where a department is two hundred people. Somebody with no manager
+    // recorded has no team to report, rather than the whole company.
+    private async Task<IReadOnlyList<TeamLeaveDto>> TeamOnLeaveAsync(
+        Guid employeeId,
+        DateOnly day,
+        CancellationToken cancellationToken)
+    {
+        Guid? managerId = await dbContext.Employees
+            .AsNoTracking()
+            .Where(employee => employee.Id == employeeId)
+            .Select(employee => employee.ManagerId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (managerId is not Guid manager)
+        {
+            return [];
+        }
+
+        return await dbContext.LeaveRequests
+            .AsNoTracking()
+            .Where(request => request.Status == LeaveRequestStatus.Approved
+                && request.StartDate <= day
+                && request.EndDate >= day
+                && request.EmployeeId != employeeId
+                && dbContext.Employees.Any(employee =>
+                    employee.Id == request.EmployeeId
+                    && (employee.ManagerId == manager || employee.Id == manager)))
+            .Select(request => new TeamLeaveDto
+            {
+                EmployeeId = request.EmployeeId,
+                Name = dbContext.Employees
+                    .Where(employee => employee.Id == request.EmployeeId)
+                    .Select(employee => employee.FirstName + " " + employee.LastName)
+                    .FirstOrDefault() ?? "Unknown",
+                LeaveType = dbContext.LeaveTypes
+                    .Where(type => type.Id == request.LeaveTypeId)
+                    .Select(type => type.Name)
+                    .FirstOrDefault() ?? "Leave",
+
+                // The day after their last day off. What the card means by
+                // "back on", and a figure nobody should have to add one to.
+                ReturnsOn = request.EndDate.AddDays(1),
+            })
+            .OrderBy(row => row.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    // What is still waiting on this person.
+    //
+    // Four sources, chosen because each one is an obligation that persists until
+    // discharged. Notifications are deliberately not among them: a notification
+    // records that something happened, and the course it announced last week is
+    // still outstanding today — which is the distinction this list exists for.
+    private async Task<List<MyPendingItemDto>> PendingAsync(
+        Guid employeeId,
+        DateOnly today,
+        CancellationToken cancellationToken)
+    {
+        List<MyPendingItemDto> items = [];
+
+        List<LeaveRequest> awaiting = await dbContext.LeaveRequests
+            .AsNoTracking()
+            .Where(request => request.EmployeeId == employeeId
+                && request.Status == LeaveRequestStatus.Pending)
+            .OrderBy(request => request.StartDate)
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(awaiting.Select(request => new MyPendingItemDto
+        {
+            Kind = "leave-request",
+            Label = "Leave request pending",
+            Detail = $"{request.StartDate:d MMM} to {request.EndDate:d MMM}",
+            Href = "/employee/leave",
+
+            // Starting before it has been decided. Nobody can plan around a
+            // request that is still pending on the morning it begins.
+            Urgent = request.StartDate <= today.AddDays(LeaveDecisionWarningDays),
+        }));
+
+        List<Course> overdue = await dbContext.CourseEnrollments
+            .AsNoTracking()
+            .Where(enrolment => enrolment.EmployeeId == employeeId
+                && enrolment.Status != EnrollmentStatus.Completed
+                && enrolment.Status != EnrollmentStatus.Dropped
+                && enrolment.DueOn != null
+                && enrolment.DueOn <= today.AddDays(CourseWarningDays))
+            .Join(
+                dbContext.Courses.AsNoTracking(),
+                enrolment => enrolment.CourseId,
+                course => course.Id,
+                (enrolment, course) => new Course(course.Title, enrolment.DueOn!.Value))
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(overdue
+            .OrderBy(course => course.DueOn)
+            .Select(course => new MyPendingItemDto
+            {
+                Kind = "course",
+                Label = course.DueOn < today ? "Course overdue" : "Course due",
+                Detail = course.Title,
+                Href = "/employee/training",
+                Urgent = course.DueOn < today,
+            }));
+
+        // Assigned or shared, needs acknowledging, and has not been. Through the
+        // same reach the documents module uses, so a document somebody cannot
+        // see is not listed as something they must sign.
+        List<string> unsigned = await dbContext.HrDocuments
+            .AsNoTracking()
+            .Where(document => document.RequiresAcknowledgement
+                && document.TrashedAt == null
+                && !document.IsArchived
+                && (document.Assignment == AssignmentScope.Global
+                    || dbContext.DocumentShares.Any(share =>
+                        share.DocumentId == document.Id && share.EmployeeId == employeeId))
+                && !dbContext.DocumentAcknowledgements.Any(ack =>
+                    ack.DocumentId == document.Id && ack.EmployeeId == employeeId))
+            .Select(document => document.Name)
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(unsigned
+            .OrderBy(title => title, StringComparer.OrdinalIgnoreCase)
+            .Select(title => new MyPendingItemDto
+            {
+                Kind = "acknowledgement",
+                Label = "Policy acknowledgement",
+                Detail = title,
+                Href = "/employee/documents",
+
+                // Not urgent on its own: an unsigned policy has no date, and
+                // marking everything urgent is the same as marking nothing.
+                Urgent = false,
+            }));
+
+        // Urgent first, then by the order each source produced.
+        return [.. items.OrderByDescending(item => item.Urgent)];
+    }
+
+    private sealed record Course(string Title, DateOnly DueOn);
+
+    // ── untaken leave ───────────────────────────────────────────────────────
+
+    public async Task<UntakenLeaveDashboardDto> UntakenLeaveAsync(
+        CancellationToken cancellationToken = default)
+    {
+        DateOnly today = await TodayAsync(cancellationToken);
+
+        // Annual leave only. Sick leave is reported rather than booked, and
+        // nobody is at risk of failing to use it.
+        LeaveType? annual = await dbContext.LeaveTypes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(type => type.Code == AnnualLeaveCode, cancellationToken);
+
+        if (annual is null)
+        {
+            return new UntakenLeaveDashboardDto { AsOf = today, AtRisk = [] };
+        }
+
+        LeavePolicy? policy = await dbContext.LeavePolicies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                candidate => candidate.LeaveTypeId == annual.Id && candidate.IsActive,
+                cancellationToken);
+
+        // What they would keep. Unlimited carry-over means nothing is at risk,
+        // which is the case a flat "more than ten days left" gets wrong — it
+        // would chase people who lose nothing.
+        decimal carried = policy is { CarryOverAllowed: true }
+            ? policy.MaxCarryOverDays
+            : 0m;
+
+        // Through the balance service rather than recomputed here. Accrual,
+        // carry-over expiry and adjustments all feed Available, and a second
+        // arithmetic would disagree with the balances screen the first time one
+        // of those rules changed.
+        PagedResult<LeaveBalanceDto> balances = await leaveBalances.ListAsync(
+            new LeaveBalanceQuery
+            {
+                LeaveTypeId = annual.Id,
+                AsAt = today,
+                PageSize = PagedQuery.MaxPageSize,
+            },
+            cancellationToken);
+
+        List<UntakenLeaveRowDto> atRisk =
+        [
+            .. balances.Items
+                .Select(balance => new
+                {
+                    Balance = balance,
+                    Lost = balance.Available - carried,
+                })
+                .Where(row => row.Lost > 0m)
+                .Select(row => new UntakenLeaveRowDto
+                {
+                    EmployeeId = row.Balance.EmployeeId,
+                    EmployeeName = row.Balance.EmployeeName,
+                    Department = row.Balance.DepartmentName,
+                    Remaining = row.Balance.Available,
+                    AtRiskDays = row.Lost,
+                })
+
+                // Most at risk first: the card shows the first few rows and the
+                // person losing a fortnight is the one to ring.
+                .OrderByDescending(row => row.AtRiskDays)
+                .ThenBy(row => row.EmployeeName, StringComparer.OrdinalIgnoreCase),
+        ];
+
+        return new UntakenLeaveDashboardDto
+        {
+            AsOf = today,
+            // The day after the year starts again, less one. Taken from the
+            // balances rather than recomputed from the tenant's turnover, so
+            // the deadline shown and the year the figures were counted in are
+            // the same year by construction.
+            LeaveYearEnds = balances.Items.Count == 0
+                ? null
+                : balances.Items[0].LeaveYearStart.AddYears(1).AddDays(-1),
+            AtRisk = atRisk,
+        };
+    }
 
     private async Task<Dictionary<Guid, ApprovalStatus>> ChainStatusesAsync(
         IEnumerable<Guid?> instanceIds,

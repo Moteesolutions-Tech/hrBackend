@@ -51,4 +51,33 @@ public class DashboardController(IDashboardService dashboard) : ApiControllerBas
     [RequiresPermission("organization.employees", PermissionAction.View)]
     public async Task<IActionResult> Lifecycle(CancellationToken cancellationToken) =>
         Ok(await dashboard.LifecycleAsync(cancellationToken));
+
+    // Who is about to lose leave. Named rows, so behind the leave module rather
+    // than the employee one: this is a list of people and their balances, which
+    // is leave data however few columns it has.
+    //
+    // There is no /dashboard/events to go with these. The Events tab wants the
+    // agenda, and GET /calendar/upcoming?days=30 already is the agenda — one
+    // that applies each event's own audience rules. A dashboard copy would
+    // either repeat that or leak a one-to-one somebody is not party to.
+    [HttpGet("untaken-leave")]
+    [ProducesResponseType<UntakenLeaveDashboardDto>(StatusCodes.Status200OK)]
+    [RequiresPermission("time-payroll.leave", PermissionAction.View)]
+    public async Task<IActionResult> UntakenLeave(CancellationToken cancellationToken) =>
+        Ok(await dashboard.UntakenLeaveAsync(cancellationToken));
+
+    // The employee's own front page. RequiresEmployee rather than a module
+    // permission, like the rest of self-service: needing the attendance module
+    // to see your own clock would mean granting every member of staff the
+    // screen that shows where the whole company is.
+    //
+    // Recent activity is not part of this. GET /notifications already answers
+    // "what has happened to me", per user, with a link and a read flag the card
+    // wants anyway — and a notification is a different thing from an
+    // obligation, which is what Pending holds.
+    [HttpGet("mine")]
+    [RequiresEmployee]
+    [ProducesResponseType<MyDashboardDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Mine(CancellationToken cancellationToken) =>
+        Ok(await dashboard.MineAsync(cancellationToken));
 }

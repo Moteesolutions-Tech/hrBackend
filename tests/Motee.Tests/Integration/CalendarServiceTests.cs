@@ -980,4 +980,129 @@ public class CalendarServiceTests(PostgresFixture fixture)
 
         await seed.SaveChangesAsync();
     }
+
+    // ── first and last days ─────────────────────────────────────────────────
+    //
+    // One-off, unlike a birthday or an anniversary, and derived here rather
+    // than on the dashboard that asked for them: a second implementation would
+    // not apply the audience rules the agenda applies, and the calendar is
+    // where somebody looks for "Ada starts Monday" anyway.
+
+    [SkippableFact]
+    public async Task AStarterAppearsOnTheirFirstDay()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid ada = await HireAsync(
+            provider, "Ada2", Today.AddDays(3), status: EmployeeStatus.Pending);
+
+        CalendarItemDto starter = Assert.Single(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Starter);
+
+        Assert.Equal(Today.AddDays(3), starter.Date);
+        Assert.Equal(ada, starter.PersonId);
+        Assert.Equal("Ada2 Okafor starts", starter.Title);
+        Assert.True(starter.AllDay);
+    }
+
+    // The gate the other celebrations use would hide this one. A starter is
+    // still Pending on the day the calendar needs to announce them, which is
+    // exactly the day somebody is checking for.
+    [SkippableFact]
+    public async Task AStarterWhoHasNotStartedIsStillAnnounced()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada3", Today.AddDays(2), status: EmployeeStatus.Onboarded);
+
+        Assert.Contains(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Starter);
+    }
+
+    [SkippableFact]
+    public async Task AStartDateOutsideTheWindowIsNotDrawn()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(
+            provider, "Ada4", Today.AddDays(30), status: EmployeeStatus.Pending);
+
+        Assert.DoesNotContain(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Starter);
+    }
+
+    // A start date years ago is somebody's anniversary, not a starter event —
+    // and the anniversary path already handles the recurrence.
+    [SkippableFact]
+    public async Task ALongStandingEmployeeIsNotAStarter()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada5", new DateOnly(2020, 6, 17));
+
+        Assert.DoesNotContain(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Starter);
+    }
+
+    [SkippableFact]
+    public async Task ALeaversLastDayIsDrawn()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid ada = await HireAsync(provider, "Ada6", new DateOnly(2021, 3, 1));
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            Employee employee = await seed.Employees.FirstAsync(row => row.Id == ada);
+
+            employee.DateOfLeaving = Today.AddDays(4);
+            employee.Status = EmployeeStatus.Offboarding;
+
+            await seed.SaveChangesAsync();
+        }
+
+        CalendarItemDto leaver = Assert.Single(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Leaver);
+
+        Assert.Equal(Today.AddDays(4), leaver.Date);
+
+        // "Last day", not "leaves": the date recorded is the final working day,
+        // and a handover planned for the day after is one with nobody there.
+        Assert.Equal("Ada6 Okafor — last day", leaver.Title);
+    }
+
+    // Inactive the moment they go, which the Here gate excludes. Their last day
+    // is still the thing the calendar was asked about.
+    [SkippableFact]
+    public async Task ALeaverWhoHasAlreadyGoneStillShowsTheirLastDay()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid ada = await HireAsync(provider, "Ada7", new DateOnly(2021, 3, 1));
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            Employee employee = await seed.Employees.FirstAsync(row => row.Id == ada);
+
+            employee.DateOfLeaving = Today.AddDays(1);
+            employee.Status = EmployeeStatus.Inactive;
+
+            await seed.SaveChangesAsync();
+        }
+
+        Assert.Contains(
+            await AgendaAsync(provider),
+            item => item.Category == CalendarCategory.Leaver);
+    }
 }

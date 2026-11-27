@@ -659,6 +659,45 @@ internal sealed class CalendarService(
 
         foreach (Person person in people.Values)
         {
+            // First and last days are one-off and sit outside the Here gate on
+            // purpose: a starter is still Pending on the day the calendar needs
+            // to announce them, and a leaver is Inactive the moment they go.
+            // Gating these the way birthdays are gated would hide exactly the
+            // two events somebody is checking the calendar for.
+            if (Within(person.StartDate, query) is DateOnly starts)
+            {
+                items.Add(new CalendarItemDto
+                {
+                    Id = $"starter:{person.Id:D}",
+                    Title = $"{person.Name} starts",
+                    Date = starts,
+                    AllDay = true,
+                    Category = CalendarCategory.Starter,
+                    Layer = CalendarLayer.Company,
+                    PersonId = person.Id,
+                    PersonName = person.Name,
+                });
+            }
+
+            if (Within(person.DateOfLeaving, query) is DateOnly leaves)
+            {
+                items.Add(new CalendarItemDto
+                {
+                    Id = $"leaver:{person.Id:D}",
+
+                    // "Last day", not "leaves" — the date recorded is the final
+                    // working day, and a handover planned for the day after is a
+                    // handover with nobody there.
+                    Title = $"{person.Name} — last day",
+                    Date = leaves,
+                    AllDay = true,
+                    Category = CalendarCategory.Leaver,
+                    Layer = CalendarLayer.Company,
+                    PersonId = person.Id,
+                    PersonName = person.Name,
+                });
+            }
+
             if (!Here.Contains(person.Status))
             {
                 continue;
@@ -710,6 +749,12 @@ internal sealed class CalendarService(
 
         return items;
     }
+
+    // A one-off date, if it lands inside the window being drawn. Null rather
+    // than a bool so the caller gets the date it matched and cannot accidentally
+    // pair the test with a different value.
+    private static DateOnly? Within(DateOnly? date, CalendarQuery query) =>
+        date is DateOnly on && on >= query.From && on <= query.To ? on : null;
 
     // ── reading: interviews ─────────────────────────────────────────────────
 
@@ -877,7 +922,8 @@ internal sealed class CalendarService(
                 employee.FirstName + " " + employee.LastName,
                 employee.Status,
                 employee.StartDate,
-                employee.DateOfBirth))
+                employee.DateOfBirth,
+                employee.DateOfLeaving))
             .ToListAsync(cancellationToken);
 
         _people = rows.ToDictionary(person => person.Id);
@@ -948,7 +994,8 @@ internal sealed class CalendarService(
         string Name,
         EmployeeStatus Status,
         DateOnly? StartDate,
-        DateOnly? DateOfBirth);
+        DateOnly? DateOfBirth,
+        DateOnly? DateOfLeaving);
 
     private sealed record Reach(Guid Id, Guid? ManagerId);
 }
