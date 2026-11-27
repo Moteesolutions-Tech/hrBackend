@@ -31,6 +31,15 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
     // absence presents as a 404 rather than as a missing claim.
     public Guid? ActingTenant { get; set; }
 
+    // The employee behind the account, which TokenClaimsBuilder puts on a real token
+    // whenever there is one.
+    //
+    // Needed by anything that narrows to the caller's own record: Self scope reaches
+    // nobody without it, so a self-service read comes back empty or 404s. Left null
+    // for the account owner, who has no employee record — which is the distinction
+    // several of these tests exist to cover.
+    public Guid? ActingEmployee { get; set; }
+
     // Anything logged at Error, so an opaque 500 can say what actually threw.
     public List<string> Failures { get; } = [];
 
@@ -133,6 +142,11 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
             if (factory.ActingTenant is Guid tenantId)
             {
                 claims.Add(new Claim(MoteeClaimTypes.TenantId, tenantId.ToString()));
+            }
+
+            if (factory.ActingEmployee is Guid employeeId)
+            {
+                claims.Add(new Claim(MoteeClaimTypes.EmployeeId, employeeId.ToString()));
             }
 
             ClaimsPrincipal principal = new(new ClaimsIdentity(claims, Name));

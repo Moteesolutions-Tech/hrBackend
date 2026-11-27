@@ -80,4 +80,21 @@ public class DashboardController(IDashboardService dashboard) : ApiControllerBas
     [ProducesResponseType<MyDashboardDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Mine(CancellationToken cancellationToken) =>
         Ok(await dashboard.MineAsync(cancellationToken));
+
+    // The Action Centre: everything outstanding across eleven categories.
+    //
+    // Behind the employee module, which is the narrowest gate that still makes
+    // sense for something spanning documents, recruitment, employee relations,
+    // performance, leave, learning, assets and occupational health. It names
+    // people, so unlike the lifecycle counts it is not safe to open wider —
+    // and anybody who cannot read the employee list has no business reading a
+    // list of employees with things wrong on their records.
+    //
+    // Nothing clinical travels: the occupational-health rows carry a reference
+    // and a name, never the reason.
+    [HttpGet("hr-actions")]
+    [ProducesResponseType<HrActionsDashboardDto>(StatusCodes.Status200OK)]
+    [RequiresPermission("organization.employees", PermissionAction.View)]
+    public async Task<IActionResult> HrActions(CancellationToken cancellationToken) =>
+        Ok(await dashboard.HrActionsAsync(cancellationToken));
 }

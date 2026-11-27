@@ -4,19 +4,22 @@ using Motee.Application.Common;
 using Motee.Application.Dashboard;
 using Motee.Application.Leave;
 using Motee.Application.Tenancy;
-using Motee.Domain.Approvals;
 using Motee.Application.Work;
+using Motee.Domain.Approvals;
 using Motee.Domain.Attendance;
 using Motee.Domain.Common;
 using Motee.Domain.Documents;
-using Motee.Domain.Learning;
-using Motee.Domain.Work;
 using Motee.Domain.Employees;
+using Motee.Domain.Health;
+using Motee.Domain.Learning;
 using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
 using Motee.Domain.Onboarding;
 using Motee.Domain.Organisation;
+using Motee.Domain.Performance;
 using Motee.Domain.Recruitment;
+using Motee.Domain.Relations;
+using Motee.Domain.Work;
 using Motee.Domain.Workforce;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
@@ -54,6 +57,22 @@ internal sealed class DashboardService(
 
     // A course is worth surfacing before it is late, not only after.
     private const int CourseWarningDays = 7;
+
+    // Inside a week is a warning; past is critical. One threshold for every
+    // dated action, so two rows the same number of days late do not come back
+    // with different severities.
+    private const int UrgentDays = 7;
+
+    // How far ahead an expiry is worth listing at all.
+    private const int SoonDays = 60;
+
+    // An ER case open longer than this has stopped being in progress.
+    private const int CaseAgeLimitDays = 30;
+
+    // Per category. The true count travels beside the list, so a company with
+    // four hundred incomplete records is told four hundred without four hundred
+    // rows crossing the wire.
+    private const int ActionsPerCategory = 10;
 
     // How far back the headcount chart and the leave tiles look.
     private const int TrendMonths = 12;
@@ -698,6 +717,452 @@ internal sealed class DashboardService(
 
     private static LifecycleStageDto Stage(string key, int count) =>
         new() { Key = key, Count = count };
+
+    // ── HR actions ──────────────────────────────────────────────────────────
+
+    public async Task<HrActionsDashboardDto> HrActionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        DateOnly today = await TodayAsync(cancellationToken);
+
+        Dictionary<Guid, string> who = await dbContext.Employees
+            .AsNoTracking()
+            .ToDictionaryAsync(
+                employee => employee.Id,
+                employee => employee.FirstName + " " + employee.LastName,
+                cancellationToken);
+
+        List<HrActionCategoryDto> categories =
+        [
+            Category("right_to_work", await ExpiringDocumentsAsync(today, cancellationToken)),
+            Category("compliance", await IncompleteRecordsAsync(cancellationToken)),
+
+            // Deliberately empty, and present rather than absent so the screen
+            // draws the category and says nothing is outstanding. There is no
+            // payroll in this product — no pay run, no payslip, no bank
+            // details — so every row the demo bundle shows here is a row
+            // nothing could ever compute. An empty category is honest; one
+            // filled with invented figures is not.
+            Category("payroll", []),
+
+            Category("recruitment", await StaleVacanciesAsync(today, cancellationToken)),
+            Category("relations", await OpenCasesAsync(today, who, cancellationToken)),
+            Category("performance", await OverdueReviewsAsync(today, who, cancellationToken)),
+            Category("leave", await LeaveAndAttendanceAsync(today, who, cancellationToken)),
+            Category("learning", await LearningAsync(today, who, cancellationToken)),
+            Category("assets", await AssetsWithLeaversAsync(who, cancellationToken)),
+            Category("management", await StuckApprovalsAsync(cancellationToken)),
+            Category("executive", await RiskAsync(today, who, cancellationToken)),
+        ];
+
+        List<HrActionDto> everything = [.. categories.SelectMany(category => category.Actions)];
+
+        return new HrActionsDashboardDto
+        {
+            AsOf = today,
+            Total = categories.Sum(category => category.Count),
+            Critical = everything.Count(a => a.Severity == HrActionSeverity.Critical),
+            Warning = everything.Count(a => a.Severity == HrActionSeverity.Warning),
+            Info = everything.Count(a => a.Severity == HrActionSeverity.Info),
+            Categories = categories,
+        };
+    }
+
+    // Capped, with the true count beside it. A company with four hundred
+    // incomplete records needs to know that; it does not need four hundred rows
+    // in a dashboard payload, and the category links out to the full screen.
+    private static HrActionCategoryDto Category(string key, IReadOnlyList<HrActionDto> actions) =>
+        new()
+        {
+            Key = key,
+            Count = actions.Count,
+            Actions = [.. actions
+                .OrderBy(action => action.Severity)
+                .ThenBy(action => action.DueInDays ?? int.MaxValue)
+                .Take(ActionsPerCategory)],
+        };
+
+    private static HrActionSeverity ByDate(int days) => days switch
+    {
+        < 0 => HrActionSeverity.Critical,
+        <= UrgentDays => HrActionSeverity.Warning,
+        _ => HrActionSeverity.Info,
+    };
+
+    // Documents with an expiry: right to work, visas, share codes, DBS.
+    private async Task<IReadOnlyList<HrActionDto>> ExpiringDocumentsAsync(
+        DateOnly today,
+        CancellationToken cancellationToken)
+    {
+        List<Expiring> rows = await dbContext.HrDocuments
+            .AsNoTracking()
+            .Where(document => document.ExpiryDate != null
+                && !document.IsArchived
+                && document.TrashedAt == null
+                && document.ExpiryDate <= today.AddDays(SoonDays))
+            .Select(document => new Expiring(
+                document.Id, document.Name, document.ExpiryDate!.Value))
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows.Select(row => Action(
+                $"document-expiry:{row.Id:D}",
+                row.ExpiresOn < today ? "Document expired" : "Document expiring",
+                row.Name,
+                row.ExpiresOn.DayNumber - today.DayNumber,
+                "/organization/documents")),
+        ];
+    }
+
+    // In post and missing the details somebody needs in an emergency. Info
+    // rather than warning: nothing breaks today, and marking tidying as urgent
+    // is how a list of twenty critical items gets ignored.
+    private async Task<IReadOnlyList<HrActionDto>> IncompleteRecordsAsync(
+        CancellationToken cancellationToken)
+    {
+        List<Named> rows = await dbContext.Employees
+            .AsNoTracking()
+            .Where(employee => InPost.Contains(employee.Status)
+                && (employee.EmergencyContactName == null
+                    || employee.EmergencyContactPhone == null))
+            .Select(employee => new Named(
+                employee.Id, employee.FirstName + " " + employee.LastName))
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows.Select(row => new HrActionDto
+            {
+                Id = $"missing-emergency-contact:{row.Id:D}",
+                Title = "Missing emergency contact",
+                Detail = row.Name,
+                Severity = HrActionSeverity.Info,
+                Href = "/organization/employees",
+                EmployeeId = row.Id,
+            }),
+        ];
+    }
+
+    // Still advertised and past its own closing date. Through the domain's
+    // expiry rule, so this and the recruitment board agree.
+    private async Task<IReadOnlyList<HrActionDto>> StaleVacanciesAsync(
+        DateOnly today,
+        CancellationToken cancellationToken)
+    {
+        List<JobRequisition> rows = await dbContext.JobRequisitions
+            .AsNoTracking()
+            .Where(requisition => requisition.ExpiryDate != null)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows
+                .Where(requisition => Requisitions.IsRecruiting(requisition.Status)
+                    && Requisitions.HasExpired(requisition, today))
+                .Select(requisition => Action(
+                    $"vacancy-expired:{requisition.Id:D}",
+                    "Vacancy past its closing date",
+                    requisition.PositionTitle,
+                    requisition.ExpiryDate!.Value.DayNumber - today.DayNumber,
+                    "/talent/recruitment")),
+        ];
+    }
+
+    private async Task<IReadOnlyList<HrActionDto>> OpenCasesAsync(
+        DateOnly today,
+        IReadOnlyDictionary<Guid, string> who,
+        CancellationToken cancellationToken)
+    {
+        List<OpenCase> rows = await dbContext.ErCases
+            .AsNoTracking()
+            .Where(row => row.Stage != CaseStage.Closed)
+            .Select(row => new OpenCase(row.Id, row.CaseNumber, row.SubjectEmployeeId, row.RaisedOn))
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows.Select(row => new HrActionDto
+            {
+                Id = $"er-case-open:{row.Id:D}",
+                Title = "Employee relations case open",
+                Detail = row.SubjectEmployeeId is Guid subject
+                    ? $"{row.CaseNumber} · {who.GetValueOrDefault(subject, "Unknown")}"
+                    : row.CaseNumber,
+
+                // Against the ageing of the case rather than a due date, which
+                // an ER case does not have: a grievance open for two months is
+                // the problem whatever stage it is at.
+                Severity = today.DayNumber - row.RaisedOn.DayNumber > CaseAgeLimitDays
+                    ? HrActionSeverity.Critical
+                    : HrActionSeverity.Warning,
+                Href = "/hr-action-center/employee-relations",
+                DueInDays = CaseAgeLimitDays - (today.DayNumber - row.RaisedOn.DayNumber),
+                EmployeeId = row.SubjectEmployeeId,
+            }),
+        ];
+    }
+
+    private async Task<IReadOnlyList<HrActionDto>> OverdueReviewsAsync(
+        DateOnly today,
+        IReadOnlyDictionary<Guid, string> who,
+        CancellationToken cancellationToken)
+    {
+        List<PerformanceReview> rows = await dbContext.PerformanceReviews
+            .AsNoTracking()
+            .Where(review => review.DueDate < today)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows
+                .Where(review => PerformanceReviews.IsOverdue(review, today))
+                .Select(review => Action(
+                    $"review-overdue:{review.Id:D}",
+                    "Performance review overdue",
+                    who.GetValueOrDefault(review.EmployeeId, "Unknown"),
+                    review.DueDate.DayNumber - today.DayNumber,
+                    "/talent/performance",
+                    review.EmployeeId)),
+        ];
+    }
+
+    private async Task<IReadOnlyList<HrActionDto>> LeaveAndAttendanceAsync(
+        DateOnly today,
+        IReadOnlyDictionary<Guid, string> who,
+        CancellationToken cancellationToken)
+    {
+        List<HrActionDto> items = [];
+
+        List<Submitted> timesheets = await dbContext.Timesheets
+            .AsNoTracking()
+            .Where(sheet => sheet.Status == TimesheetStatus.Submitted)
+            .Select(sheet => new Submitted(sheet.Id, sheet.EmployeeId, sheet.WeekStart))
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(timesheets.Select(sheet => new HrActionDto
+        {
+            Id = $"timesheet-awaiting:{sheet.Id:D}",
+            Title = "Timesheet awaiting approval",
+            Detail = $"{who.GetValueOrDefault(sheet.EmployeeId, "Unknown")} · "
+                + $"week of {sheet.WeekStart:d MMM}",
+            Severity = HrActionSeverity.Warning,
+            Href = "/time-payroll/attendance",
+            EmployeeId = sheet.EmployeeId,
+        }));
+
+        int corrections = await dbContext.AttendanceCorrections
+            .AsNoTracking()
+            .CountAsync(row => row.Status == CorrectionStatus.Pending, cancellationToken);
+
+        if (corrections > 0)
+        {
+            // One row for the queue rather than one per correction: the screen
+            // links straight to it, and a hundred identical rows would bury
+            // everything else in the category.
+            items.Add(new HrActionDto
+            {
+                Id = "attendance-corrections",
+                Title = "Attendance corrections awaiting review",
+                Detail = $"{corrections} pending",
+                Severity = HrActionSeverity.Warning,
+                Href = "/time-payroll/attendance",
+            });
+        }
+
+        List<Booking> starting = await dbContext.LeaveRequests
+            .AsNoTracking()
+            .Where(request => request.Status == LeaveRequestStatus.Pending
+                && request.StartDate <= today.AddDays(UrgentDays))
+            .Select(request => new Booking(request.Id, request.EmployeeId, request.StartDate))
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(starting.Select(request => Action(
+            $"leave-undecided:{request.Id:D}",
+            "Leave starting without a decision",
+            who.GetValueOrDefault(request.EmployeeId, "Unknown"),
+            request.StartDate.DayNumber - today.DayNumber,
+            "/time-payroll/leave",
+            request.EmployeeId)));
+
+        return items;
+    }
+
+    private async Task<IReadOnlyList<HrActionDto>> LearningAsync(
+        DateOnly today,
+        IReadOnlyDictionary<Guid, string> who,
+        CancellationToken cancellationToken)
+    {
+        List<HrActionDto> items = [];
+
+        List<Due> courses = await dbContext.CourseEnrollments
+            .AsNoTracking()
+            .Where(enrolment => enrolment.Status != EnrollmentStatus.Completed
+                && enrolment.Status != EnrollmentStatus.Dropped
+                && enrolment.DueOn != null
+                && enrolment.DueOn < today)
+            .Select(enrolment => new Due(
+                enrolment.Id, enrolment.EmployeeId, enrolment.DueOn!.Value))
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(courses.Select(course => Action(
+            $"course-overdue:{course.Id:D}",
+            "Mandatory course overdue",
+            who.GetValueOrDefault(course.EmployeeId, "Unknown"),
+            course.DueOn.DayNumber - today.DayNumber,
+            "/talent/training",
+            course.EmployeeId)));
+
+        List<Expiry> certificates = await dbContext.Certifications
+            .AsNoTracking()
+            .Where(certificate => certificate.ExpiresOn != null
+                && certificate.ExpiresOn <= today.AddDays(Certifications.SoonDays))
+            .Select(certificate => new Expiry(
+                certificate.Id,
+                certificate.EmployeeId,
+                certificate.Title,
+                certificate.ExpiresOn!.Value))
+            .ToListAsync(cancellationToken);
+
+        items.AddRange(certificates.Select(certificate => Action(
+            $"certification-expiry:{certificate.Id:D}",
+            Certifications.StatusOf(certificate.ExpiresOn, today) == CertStatus.Expired
+                ? "Certification expired"
+                : "Certification expiring",
+            $"{who.GetValueOrDefault(certificate.EmployeeId, "Unknown")} · {certificate.Title}",
+            certificate.ExpiresOn.DayNumber - today.DayNumber,
+            "/talent/training",
+            certificate.EmployeeId)));
+
+        return items;
+    }
+
+    // Kit still on somebody who has gone. Critical because it is the one on
+    // this list that walks out of the building.
+    private async Task<IReadOnlyList<HrActionDto>> AssetsWithLeaversAsync(
+        IReadOnlyDictionary<Guid, string> who,
+        CancellationToken cancellationToken)
+    {
+        List<Held> rows = await dbContext.Assets
+            .AsNoTracking()
+            .Where(asset => asset.AssignedToEmployeeId != null
+                && dbContext.Employees.Any(employee =>
+                    employee.Id == asset.AssignedToEmployeeId
+                    && !InPost.Contains(employee.Status)))
+            .Select(asset => new Held(
+                asset.Id, asset.Name, asset.Tag, asset.AssignedToEmployeeId!.Value))
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows.Select(row => new HrActionDto
+            {
+                Id = $"asset-with-leaver:{row.Id:D}",
+                Title = "Asset still issued to a leaver",
+                Detail = $"{row.Tag} {row.Name} · {who.GetValueOrDefault(row.Holder, "Unknown")}",
+                Severity = HrActionSeverity.Critical,
+                Href = "/organization/assets",
+                EmployeeId = row.Holder,
+            }),
+        ];
+    }
+
+    // Live, and waiting on a step that resolved to nobody. Nothing will happen
+    // to these without somebody fixing the org chart and asking the chain to
+    // look again, so they age quietly in no queue at all — which is exactly
+    // what the Action Centre is for.
+    private async Task<IReadOnlyList<HrActionDto>> StuckApprovalsAsync(
+        CancellationToken cancellationToken)
+    {
+        List<Stuck> rows = await dbContext.ApprovalInstances
+            .AsNoTracking()
+            .Where(instance => instance.Status == ApprovalStatus.InProgress
+                && dbContext.ApprovalStepInstances.Any(step =>
+                    step.InstanceId == instance.Id
+                    && step.Status == ApprovalStepStatus.Pending
+                    && step.ResolvedEmployeeId == null
+                    && step.ResolvedRoleId == null))
+            .Select(instance => new Stuck(instance.Id, instance.DocumentType))
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. rows.Select(row => new HrActionDto
+            {
+                Id = $"approval-stuck:{row.Id:D}",
+                Title = "Approval waiting on nobody",
+                Detail = row.DocumentType,
+                Severity = HrActionSeverity.Critical,
+                Href = "/hr-action-center/submissions",
+            }),
+        ];
+    }
+
+    private async Task<IReadOnlyList<HrActionDto>> RiskAsync(
+        DateOnly today,
+        IReadOnlyDictionary<Guid, string> who,
+        CancellationToken cancellationToken)
+    {
+        List<OhReferral> referrals = await dbContext.OhReferrals
+            .AsNoTracking()
+            .Where(referral => referral.ReviewDate != null && referral.ClosedOn == null)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. referrals
+                .Where(referral => OhRules.ReviewIsDue(referral, today))
+                .Select(referral => Action(
+                    $"oh-review-due:{referral.Id:D}",
+                    "Occupational health review due",
+
+                    // The reference, not the reason. The clinical category is
+                    // special-category data and an HR dashboard is the widest
+                    // surface in the product.
+                    $"{referral.ReferenceNumber} · "
+                    + who.GetValueOrDefault(referral.EmployeeId, "Unknown"),
+                    referral.ReviewDate!.Value.DayNumber - today.DayNumber,
+                    "/time-payroll/occupational-health",
+                    referral.EmployeeId)),
+        ];
+    }
+
+    private static HrActionDto Action(
+        string id,
+        string title,
+        string? detail,
+        int dueInDays,
+        string href,
+        Guid? employeeId = null) =>
+        new()
+        {
+            Id = id,
+            Title = title,
+            Detail = detail,
+            Severity = ByDate(dueInDays),
+            Href = href,
+            DueInDays = dueInDays,
+            EmployeeId = employeeId,
+        };
+
+    private sealed record Named(Guid Id, string Name);
+
+    private sealed record Expiring(Guid Id, string Name, DateOnly ExpiresOn);
+
+    private sealed record OpenCase(
+        Guid Id, string CaseNumber, Guid? SubjectEmployeeId, DateOnly RaisedOn);
+
+    private sealed record Submitted(Guid Id, Guid EmployeeId, DateOnly WeekStart);
+
+    private sealed record Booking(Guid Id, Guid EmployeeId, DateOnly StartDate);
+
+    private sealed record Due(Guid Id, Guid EmployeeId, DateOnly DueOn);
+
+    private sealed record Expiry(Guid Id, Guid EmployeeId, string Title, DateOnly ExpiresOn);
+
+    private sealed record Held(Guid Id, string Name, string Tag, Guid Holder);
+
+    private sealed record Stuck(Guid Id, string DocumentType);
 
     // ── self-service ────────────────────────────────────────────────────────
 
