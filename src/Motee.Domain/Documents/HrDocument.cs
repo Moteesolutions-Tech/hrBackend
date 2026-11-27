@@ -44,6 +44,25 @@ public enum DocumentPermission
     Download,
 }
 
+// Where a document somebody uploaded themselves has got to.
+//
+// Only ever set on a self-service upload. HR filing a document is not a request for
+// permission, so those rows carry null rather than a status implying somebody signed
+// them off.
+public enum DocumentReviewStatus
+{
+    // With HR. Deliberately not in the main library yet: a document waiting to be
+    // accepted is not part of the record, and listing it as though it were would mean
+    // an employee could put anything on their own file by uploading it.
+    AwaitingReview,
+
+    Accepted,
+
+    // Refused, with a reason, and still visible to the person who uploaded it. Hiding
+    // it would leave them unable to tell a rejection from an upload that never arrived.
+    Rejected,
+}
+
 // Who a document is for.
 public enum AssignmentScope
 {
@@ -95,6 +114,26 @@ public class HrDocument : ITenantScoped
     public bool IsArchived { get; set; }
 
     public DateTimeOffset? TrashedAt { get; set; }
+
+    // Set when an employee uploaded this themselves, rather than HR filing it.
+    //
+    // Keyed on the employee and not the account, so somebody's own uploads stay theirs
+    // through a new account — the same reason a change request checks the employee.
+    // Null for anything HR filed, which is most of the library.
+    public Guid? UploadedByEmployeeId { get; set; }
+
+    // Where a self-service upload has got to. Null for anything HR filed, because a
+    // document the company put there was never waiting on anybody's decision — and a
+    // default of "approved" would quietly say somebody reviewed it.
+    public DocumentReviewStatus? ReviewStatus { get; set; }
+
+    public Guid? ReviewedByUserId { get; set; }
+
+    public DateTimeOffset? ReviewedAt { get; set; }
+
+    // Why it was refused. Required on a rejection: "your document was rejected" with
+    // no reason sends somebody to HR to ask, which is the cost the field avoids.
+    public string? ReviewNote { get; set; }
 
     public Guid? CreatedByUserId { get; set; }
 
@@ -183,6 +222,19 @@ public class DocumentFolder : ITenantScoped
     // "Policies - Engineering".
     public Guid? ParentId { get; set; }
 
+    // Whose drawer this is, for a Personal folder. Null for every company folder.
+    //
+    // On the employee rather than inferred from CreatedByUserId, which is what was
+    // there: an account is not a person. HR creating a drawer on somebody's behalf, or
+    // an employee returning on a new account, both break the inference and neither
+    // breaks this.
+    public Guid? OwnerEmployeeId { get; set; }
+
+    // The swatch the screen draws. Presentation, which is why it is a free string
+    // rather than an enum — the palette belongs to the client, and pinning it here
+    // would mean a release every time somebody wanted a different green.
+    public string? Colour { get; set; }
+
     public Guid? CreatedByUserId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
@@ -203,4 +255,25 @@ public static class Documents
     // deletes Contracts finds that tab empty with nothing to explain it.
     public static bool IsDeletable(DocumentFolder folder) =>
         folder.Type is not (FolderType.System or FolderType.Trash);
+
+    // Whether somebody may bin, move or re-file this document themselves.
+    //
+    // Only their own uploads. The rule exists because /documents/mine returns two very
+    // different things: what HR shared or assigned to them, and what they put there.
+    // Without this an employee could bin the staff handbook off their own file, or move
+    // their contract into a folder HR cannot find — neither of which is theirs to do.
+    public static bool IsOwnedBy(HrDocument document, Guid employeeId) =>
+        document.UploadedByEmployeeId == employeeId;
+
+    // Whether this row belongs in the company library yet.
+    //
+    // A self-service upload awaiting review is not part of the record. Listing it as
+    // though it were would mean an employee could put anything on their own file by
+    // uploading it, which is the whole reason the review queue exists.
+    public static bool IsFiled(HrDocument document) =>
+        document.ReviewStatus is null or DocumentReviewStatus.Accepted;
+
+    // Waiting on HR. The review queue's one filter.
+    public static bool AwaitsReview(HrDocument document) =>
+        document.ReviewStatus == DocumentReviewStatus.AwaitingReview;
 }

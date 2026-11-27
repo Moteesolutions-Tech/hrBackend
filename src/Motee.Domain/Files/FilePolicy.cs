@@ -39,6 +39,15 @@ public enum FilePurpose
     // separate means that exception is one purpose wide.
     CompanyVerificationDocument,
 
+    // A reviewer's signature on an approval decision, where the chain requires one.
+    //
+    // Its own purpose rather than an approval attachment, because of what it may be.
+    // An attachment is evidence somebody downloads and keeps, so it admits documents
+    // and spreadsheets; a signature is an image rendered beside the decision, and
+    // letting a spreadsheet pass as one is how a chain ends up "signed" with a
+    // workbook nobody can look at.
+    ApprovalSignature,
+
     // Evidence on a profile change request: a deed poll for a name, a bill for an
     // address, a marriage certificate.
     //
@@ -129,6 +138,15 @@ public static class FilePolicy
         {
             MaxBytes = 10 * Mb,
             ContentTypes = ["application/pdf", .. Images],
+        },
+
+        // An image and nothing else. A signature is drawn on a trackpad or photographed
+        // off paper, and small — anything larger is a scan of a whole document, which
+        // is an attachment rather than a signature.
+        [FilePurpose.ApprovalSignature] = new()
+        {
+            MaxBytes = 2 * Mb,
+            ContentTypes = [.. Images],
         },
 
         // One or two pages, scanned or photographed: a deed poll, a bill, a certificate.

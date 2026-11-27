@@ -11,6 +11,17 @@ public interface IExportService
         EmployeeExportFilters filters,
         CancellationToken cancellationToken = default);
 
+    // A report export, queued the same way and collected through the same /exports
+    // reads. Reusing that machinery rather than inventing a second one is most of why
+    // this endpoint is small: the queue, the retention, the signed link, the email and
+    // the listing all already exist and all already scope to the requester.
+    //
+    // The filters carry an already-resolved data scope, because the worker that runs
+    // this has no user to resolve one from. See ReportExportFilters.
+    Task<ExportJobDto> RequestReportExportAsync(
+        Reports.ReportExportFilters filters,
+        CancellationToken cancellationToken = default);
+
     Task<ExportJobDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     // The caller's own exports, newest first.

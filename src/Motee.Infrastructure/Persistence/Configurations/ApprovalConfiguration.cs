@@ -1,6 +1,9 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Motee.Domain.Approvals;
+using Motee.Domain.Files;
 
 namespace Motee.Infrastructure.Persistence.Configurations;
 
@@ -73,6 +76,8 @@ internal sealed class ApprovalTemplateStepConfiguration
 
 internal sealed class ApprovalInstanceConfiguration : IEntityTypeConfiguration<ApprovalInstance>
 {
+    private static readonly JsonSerializerOptions IntakeJson = new(JsonSerializerDefaults.Web);
+
     public void Configure(EntityTypeBuilder<ApprovalInstance> builder)
     {
         builder.ToTable("approval_instances");
@@ -80,6 +85,31 @@ internal sealed class ApprovalInstanceConfiguration : IEntityTypeConfiguration<A
 
         builder.Property(instance => instance.DocumentType).HasMaxLength(60).IsRequired();
         builder.Property(instance => instance.SubjectType).HasMaxLength(60).IsRequired();
+
+        // The starting module's own words for what the request is. Optional, because a
+        // module that does not supply them leaves the client to humanise the document
+        // type — which is what it already does.
+        builder.Property(instance => instance.Title).HasMaxLength(200);
+        builder.Property(instance => instance.Summary).HasMaxLength(400);
+
+        // jsonb, read whole and written whole, never queried by its parts — the register
+        // filters on status, type, requester and date, and nothing searches inside a
+        // field map. The comparer serialises, so the dictionary has to be replaced rather
+        // than mutated for a change to be seen.
+        builder.Property(instance => instance.IntakeValues)
+            .HasColumnName("intake_values")
+            .HasColumnType("jsonb")
+            .HasConversion(
+                value => JsonSerializer.Serialize(value, IntakeJson),
+                json => JsonSerializer.Deserialize<IReadOnlyDictionary<string, string?>>(
+                    json, IntakeJson)!,
+                new ValueComparer<IReadOnlyDictionary<string, string?>>(
+                    (left, right) => JsonSerializer.Serialize(left, IntakeJson)
+                        == JsonSerializer.Serialize(right, IntakeJson),
+                    value => JsonSerializer.Serialize(value, IntakeJson).GetHashCode(
+                        StringComparison.Ordinal),
+                    value => JsonSerializer.Deserialize<IReadOnlyDictionary<string, string?>>(
+                        JsonSerializer.Serialize(value, IntakeJson), IntakeJson)!));
 
         builder.Property(instance => instance.Status)
             .HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -113,6 +143,13 @@ internal sealed class ApprovalStepInstanceConfiguration
         builder.Property(step => step.Label).HasMaxLength(200).IsRequired();
         builder.Property(step => step.Note).HasMaxLength(1000);
         builder.Property(step => step.SkippedReason).HasMaxLength(300);
+
+        // Set null rather than cascade: deleting the signature image must not delete
+        // the record that the step was approved. The decision outlives the picture.
+        builder.HasOne<StoredFile>()
+            .WithMany()
+            .HasForeignKey(step => step.SignatureFileId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.Property(step => step.Approver)
             .HasConversion<string>().HasMaxLength(30).IsRequired();

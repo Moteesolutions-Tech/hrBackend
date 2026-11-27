@@ -109,6 +109,12 @@ internal sealed class LeaveRequestService(
                 SubjectType = LeaveSubject.Type,
                 SubjectId = booking.Id,
                 SubjectEmployeeId = request.EmployeeId,
+
+                // What the register shows instead of a bare document type. The leave
+                // type's name rather than "Leave request", because "Compassionate
+                // leave" and "Annual leave" are decided differently.
+                Title = await LeaveTypeNameAsync(request.LeaveTypeId, cancellationToken),
+                Summary = Describe(booking),
                 FileIds = request.FileIds,
             },
             cancellationToken);
@@ -544,6 +550,30 @@ internal sealed class LeaveRequestService(
 
     private Guid? CurrentUser() =>
         Guid.TryParse(requestContext.UserId, out Guid userId) ? userId : null;
+
+    // The leave type's own name, for the approval's title. "Compassionate leave" and
+    // "Annual leave" are decided differently, so the register showing which is not a
+    // nicety.
+    private async Task<string> LeaveTypeNameAsync(
+        Guid leaveTypeId,
+        CancellationToken cancellationToken) =>
+        await dbContext.LeaveTypes
+            .AsNoTracking()
+            .Where(type => type.Id == leaveTypeId)
+            .Select(type => type.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+        ?? "Leave";
+
+    // "3–7 Mar · 5 days", or "3 Mar · half day". The dates and the cost, which is what
+    // an approver decides on — and the cost is the snapshot, so an amendment later does
+    // not rewrite what they were shown.
+    private static string Describe(LeaveRequest booking) =>
+        booking.IsHalfDay
+            ? $"{booking.StartDate:d MMM} · half day"
+            : booking.StartDate == booking.EndDate
+                ? $"{booking.StartDate:d MMM} · 1 day"
+                : $"{booking.StartDate:d MMM}–{booking.EndDate:d MMM} · "
+                    + $"{booking.TotalDays:0.##} days";
 
     private static string? Trimmed(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

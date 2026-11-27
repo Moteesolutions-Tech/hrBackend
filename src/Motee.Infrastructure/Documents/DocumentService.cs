@@ -157,6 +157,17 @@ internal sealed class DocumentService(
     {
         IQueryable<HrDocument> source = dbContext.HrDocuments.AsNoTracking();
 
+        // Self-service uploads awaiting review are not part of the library yet.
+        //
+        // This filter is what makes the review queue mean anything. Without it an
+        // employee could put whatever they liked on the company's filing by uploading
+        // it, and HR would find it already there before anybody had looked. Rejected
+        // ones stay out too — they are still visible to whoever uploaded them, which is
+        // how they can tell a refusal from an upload that never arrived.
+        source = source.Where(document =>
+            document.ReviewStatus == null
+            || document.ReviewStatus == DocumentReviewStatus.Accepted);
+
         if (!query.IncludeTrashed)
         {
             source = source.Where(document => document.TrashedAt == null);
@@ -488,6 +499,18 @@ internal sealed class DocumentService(
                 document.AssignedDepartmentIds.Contains(department)));
         }
 
+        // Their own uploads, whatever the review has decided. Included at every status
+        // on purpose: somebody who uploaded a certificate has to be able to see that it
+        // is still waiting, and to read why it was refused. Hiding a rejection would
+        // leave them unable to tell it from an upload that never arrived.
+        //
+        // Not reached by the three routes above — an upload awaiting review is assigned
+        // to nobody and shared with nobody, which is exactly what keeps it out of the
+        // company's library until HR accepts it.
+        reachable.AddRange(await live
+            .Where(document => document.UploadedByEmployeeId == employeeId)
+            .ToListAsync(cancellationToken));
+
         // One list, however it arrived. Which of the three routes reached them is
         // not the employee's problem — and a document both shared and global would
         // otherwise appear twice.
@@ -620,6 +643,464 @@ internal sealed class DocumentService(
     }
 
     // Everybody the document reaches, worked out from its scope.
+    // ── self-service ────────────────────────────────────────────────────────
+
+    public async Task<DocumentResult> UploadMineAsync(
+        SelfUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return DocumentResult.Failed(DocumentOutcome.NoEmployeeRecord);
+        }
+
+        string? name = Trimmed(request.Name);
+
+        if (name is null)
+        {
+            return DocumentResult.Failed(DocumentOutcome.NameRequired);
+        }
+
+        long? size = await SizeOfAsync(request.FileId, cancellationToken);
+
+        if (size is null)
+        {
+            return DocumentResult.Failed(DocumentOutcome.FileNotFound);
+        }
+
+        // Their own drawer, or one created now. FolderId is not nullable on the row —
+        // every document is filed somewhere — so "no folder" means the drawer that is
+        // theirs by default rather than a null nobody can list.
+        Guid folderId;
+
+        if (request.FolderId is Guid chosen)
+        {
+            DocumentFolder? folder = await MyFolderAsync(me, chosen, cancellationToken);
+
+            if (folder is null)
+            {
+                return DocumentResult.Failed(DocumentOutcome.FolderNotFound);
+            }
+
+            folderId = folder.Id;
+        }
+        else
+        {
+            folderId = (await DrawerAsync(me, cancellationToken)).Id;
+        }
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+
+        HrDocument document = new()
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Category = request.Category,
+            FolderId = folderId,
+            Description = Trimmed(request.Description),
+            ExpiryDate = request.ExpiryDate,
+
+            // Theirs alone. Not Global or Department: an upload awaiting review is one
+            // person's document, and assigning it to anybody else before HR has looked
+            // at it would publish whatever they chose to upload.
+            Assignment = AssignmentScope.Specific,
+            UploadedByEmployeeId = me,
+
+            // Awaiting review, which is what keeps it out of the library. A document
+            // waiting to be accepted is not part of the record — otherwise an employee
+            // could put anything on their own file by uploading it.
+            ReviewStatus = DocumentReviewStatus.AwaitingReview,
+            CreatedByUserId = UserId(),
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        dbContext.HrDocuments.Add(document);
+
+        dbContext.DocumentVersions.Add(new DocumentVersion
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = document.Id,
+            Version = 1,
+            StoredFileId = request.FileId,
+            SizeBytes = size.Value,
+            UploadedByUserId = UserId(),
+            UploadedAt = now,
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return DocumentResult.Ok((await DescribeAsync([document], cancellationToken))[0]);
+    }
+
+    public async Task<IReadOnlyList<FolderDto>> MyFoldersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return [];
+        }
+
+        List<DocumentFolder> mine = await dbContext.DocumentFolders
+            .AsNoTracking()
+            .Where(folder => folder.OwnerEmployeeId == me)
+            .OrderBy(folder => folder.Name)
+            .ToListAsync(cancellationToken);
+
+        List<FolderDto> described = [];
+
+        foreach (DocumentFolder folder in mine)
+        {
+            described.Add(Describe(folder, await CountAsync(folder.Id, cancellationToken)));
+        }
+
+        return described;
+    }
+
+    public async Task<FolderResult> SaveMyFolderAsync(
+        Guid? id,
+        MyFolderRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return FolderResult.Failed(DocumentOutcome.NoEmployeeRecord);
+        }
+
+        string? name = Trimmed(request.Name);
+
+        if (name is null)
+        {
+            return FolderResult.Failed(DocumentOutcome.NameRequired);
+        }
+
+        // Within their own drawers only. Two of the company's folders may share a name
+        // with two of theirs without either being ambiguous, because nobody ever sees
+        // both lists at once.
+        bool taken = await dbContext.DocumentFolders.AnyAsync(
+            folder => folder.OwnerEmployeeId == me
+                && folder.Name == name
+                && (id == null || folder.Id != id),
+            cancellationToken);
+
+        if (taken)
+        {
+            return FolderResult.Failed(DocumentOutcome.DuplicateFolderName);
+        }
+
+        DocumentFolder folder;
+
+        if (id is Guid existing)
+        {
+            DocumentFolder? found = await MyFolderAsync(me, existing, cancellationToken, track: true);
+
+            if (found is null)
+            {
+                return FolderResult.Failed(DocumentOutcome.NotYours);
+            }
+
+            folder = found;
+        }
+        else
+        {
+            folder = new DocumentFolder
+            {
+                Id = Guid.NewGuid(),
+                Type = FolderType.Personal,
+                OwnerEmployeeId = me,
+
+                // Inside their drawer, not beside it. The drawer is the root of their
+                // tree and is identified by having no parent — so a folder they create
+                // has to hang off it, or there would be two roots and nothing could
+                // tell which one "no folder chosen" meant.
+                ParentId = (await DrawerAsync(me, cancellationToken)).Id,
+                Name = name,
+                CreatedByUserId = UserId(),
+                CreatedAt = timeProvider.GetUtcNow(),
+            };
+
+            dbContext.DocumentFolders.Add(folder);
+        }
+
+        folder.Name = name;
+        folder.Colour = Trimmed(request.Colour);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return FolderResult.Ok(
+            Describe(folder, await CountAsync(folder.Id, cancellationToken)));
+    }
+
+    public async Task<DocumentOutcome> DeleteMyFolderAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return DocumentOutcome.NoEmployeeRecord;
+        }
+
+        DocumentFolder? folder = await MyFolderAsync(me, id, cancellationToken, track: true);
+
+        if (folder is null)
+        {
+            return DocumentOutcome.NotYours;
+        }
+
+        // Emptied first, like a company folder. Deleting a drawer of documents by
+        // accident is not recoverable the way binning one document is.
+        if (await CountAsync(folder.Id, cancellationToken) > 0)
+        {
+            return DocumentOutcome.FolderNotEmpty;
+        }
+
+        dbContext.DocumentFolders.Remove(folder);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return DocumentOutcome.Succeeded;
+    }
+
+    public async Task<DocumentResult> MoveMineAsync(
+        Guid id,
+        Guid? folderId,
+        CancellationToken cancellationToken = default)
+    {
+        (HrDocument? document, DocumentOutcome refusal) = await MineToActOnAsync(
+            id, cancellationToken);
+
+        if (document is null)
+        {
+            return DocumentResult.Failed(refusal);
+        }
+
+        Guid me = document.UploadedByEmployeeId!.Value;
+
+        Guid target;
+
+        if (folderId is Guid chosen)
+        {
+            DocumentFolder? folder = await MyFolderAsync(me, chosen, cancellationToken);
+
+            if (folder is null)
+            {
+                return DocumentResult.Failed(DocumentOutcome.FolderNotFound);
+            }
+
+            target = folder.Id;
+        }
+        else
+        {
+            target = (await DrawerAsync(me, cancellationToken)).Id;
+        }
+
+        document.FolderId = target;
+        document.UpdatedAt = timeProvider.GetUtcNow();
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return DocumentResult.Ok((await DescribeAsync([document], cancellationToken))[0]);
+    }
+
+    public async Task<DocumentResult> TrashMineAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        await SetTrashedAsync(id, timeProvider.GetUtcNow(), cancellationToken);
+
+    public async Task<DocumentResult> RestoreMineAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        await SetTrashedAsync(id, null, cancellationToken);
+
+    private async Task<DocumentResult> SetTrashedAsync(
+        Guid id,
+        DateTimeOffset? trashedAt,
+        CancellationToken cancellationToken)
+    {
+        (HrDocument? document, DocumentOutcome refusal) = await MineToActOnAsync(
+            id, cancellationToken);
+
+        if (document is null)
+        {
+            return DocumentResult.Failed(refusal);
+        }
+
+        document.TrashedAt = trashedAt;
+        document.UpdatedAt = timeProvider.GetUtcNow();
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return DocumentResult.Ok((await DescribeAsync([document], cancellationToken))[0]);
+    }
+
+    // One document the caller may act on, or the reason they may not.
+    //
+    // The ownership check is the whole of self-service document safety: /documents/mine
+    // returns what HR assigned as well as what the employee uploaded, and only the
+    // second is theirs to touch.
+    private async Task<(HrDocument? Document, DocumentOutcome Refusal)> MineToActOnAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return (null, DocumentOutcome.NoEmployeeRecord);
+        }
+
+        HrDocument? document = await dbContext.HrDocuments
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (document is null)
+        {
+            return (null, DocumentOutcome.NotFound);
+        }
+
+        return Domain.Documents.Documents.IsOwnedBy(document, me)
+            ? (document, DocumentOutcome.Succeeded)
+            : (null, DocumentOutcome.NotYours);
+    }
+
+    private Task<DocumentFolder?> MyFolderAsync(
+        Guid employeeId,
+        Guid folderId,
+        CancellationToken cancellationToken,
+        bool track = false)
+    {
+        IQueryable<DocumentFolder> folders = track
+            ? dbContext.DocumentFolders
+            : dbContext.DocumentFolders.AsNoTracking();
+
+        return folders.FirstOrDefaultAsync(
+            folder => folder.Id == folderId && folder.OwnerEmployeeId == employeeId,
+            cancellationToken);
+    }
+
+    // Their default drawer, created the first time anything needs one. FolderType
+    // already has Personal for exactly this — "somebody's own drawer, visible to them
+    // and to whoever administers documents, which is the difference between private and
+    // secret" — and until now nothing could reach it.
+    //
+    // Identified by being the root of their tree: one drawer per person, with any
+    // folders they make inside it. Identifying it as "Personal with no parent" alone
+    // was wrong, because every folder they create is also Personal — so the first one
+    // became the drawer, and moving a document out of it moved it to itself.
+    private async Task<DocumentFolder> DrawerAsync(
+        Guid employeeId,
+        CancellationToken cancellationToken)
+    {
+        DocumentFolder? existing = await dbContext.DocumentFolders
+            .FirstOrDefaultAsync(
+                folder => folder.OwnerEmployeeId == employeeId
+                    && folder.Type == FolderType.Personal
+                    && folder.ParentId == null,
+                cancellationToken);
+
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        DocumentFolder drawer = new()
+        {
+            Id = Guid.NewGuid(),
+            Name = "My documents",
+            Type = FolderType.Personal,
+            OwnerEmployeeId = employeeId,
+            CreatedAt = timeProvider.GetUtcNow(),
+        };
+
+        dbContext.DocumentFolders.Add(drawer);
+
+        return drawer;
+    }
+
+    // ── HR's review queue ───────────────────────────────────────────────────
+
+    public async Task<PagedResult<DocumentDto>> ReviewsAsync(
+        PagedQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<HrDocument> waiting = dbContext.HrDocuments
+            .AsNoTracking()
+            .Where(document => document.ReviewStatus == DocumentReviewStatus.AwaitingReview);
+
+        int total = await waiting.CountAsync(cancellationToken);
+
+        // Oldest first: a queue is worked from the end that has been waiting longest.
+        List<HrDocument> page = await waiting
+            .OrderBy(document => document.CreatedAt)
+            .ThenBy(document => document.Id)
+            .Skip(query.Skip)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<DocumentDto>
+        {
+            Items = await DescribeAsync(page, cancellationToken),
+            Page = query.Page,
+            PageSize = query.PageSize,
+            TotalItems = total,
+        };
+    }
+
+    public Task<DocumentResult> AcceptUploadAsync(
+        Guid id,
+        string? note = null,
+        CancellationToken cancellationToken = default) =>
+        DecideAsync(id, DocumentReviewStatus.Accepted, note, cancellationToken);
+
+    public Task<DocumentResult> RejectUploadAsync(
+        Guid id,
+        string reason,
+        CancellationToken cancellationToken = default) =>
+        DecideAsync(id, DocumentReviewStatus.Rejected, reason, cancellationToken);
+
+    private async Task<DocumentResult> DecideAsync(
+        Guid id,
+        DocumentReviewStatus decision,
+        string? note,
+        CancellationToken cancellationToken)
+    {
+        string? trimmed = Trimmed(note);
+
+        // A rejection has to say why. "Your document was rejected" and nothing else
+        // sends somebody to HR to ask, which is the cost this avoids.
+        if (decision == DocumentReviewStatus.Rejected && trimmed is null)
+        {
+            return DocumentResult.Failed(DocumentOutcome.ReasonRequired);
+        }
+
+        HrDocument? document = await dbContext.HrDocuments
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (document is null)
+        {
+            return DocumentResult.Failed(DocumentOutcome.NotFound);
+        }
+
+        // Never a self-service upload. HR filing a document is not a request for
+        // permission, so there is nothing here to decide.
+        if (document.ReviewStatus is null)
+        {
+            return DocumentResult.Failed(DocumentOutcome.NotAwaitingReview);
+        }
+
+        if (!Domain.Documents.Documents.AwaitsReview(document))
+        {
+            return DocumentResult.Failed(DocumentOutcome.AlreadyReviewed);
+        }
+
+        document.ReviewStatus = decision;
+        document.ReviewedByUserId = UserId();
+        document.ReviewedAt = timeProvider.GetUtcNow();
+        document.ReviewNote = trimmed;
+        document.UpdatedAt = document.ReviewedAt.Value;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return DocumentResult.Ok((await DescribeAsync([document], cancellationToken))[0]);
+    }
+
     private async Task<List<Guid>> AssignedToAsync(
         HrDocument document,
         CancellationToken cancellationToken) =>
@@ -689,6 +1170,11 @@ internal sealed class DocumentService(
     private Guid? UserId() =>
         Guid.TryParse(requestContext.UserId, out Guid userId) ? userId : null;
 
+    // Null for whitespace, so an empty box and an absent field mean the same thing —
+    // and a required name cannot be satisfied with a space.
+    private static string? Trimmed(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static FolderDto Describe(DocumentFolder folder, int documentCount) => new()
     {
         Id = folder.Id,
@@ -697,6 +1183,7 @@ internal sealed class DocumentService(
         ParentId = folder.ParentId,
         DocumentCount = documentCount,
         CanDelete = Domain.Documents.Documents.IsDeletable(folder),
+        Colour = folder.Colour,
     };
 
     private async Task<IReadOnlyList<DocumentDto>> DescribeAsync(
@@ -735,6 +1222,25 @@ internal sealed class DocumentService(
             : await dbContext.Employees
                 .AsNoTracking()
                 .Where(employee => people.Contains(employee.Id))
+                .ToDictionaryAsync(
+                    employee => employee.Id,
+                    employee => employee.FirstName + " " + employee.LastName,
+                    cancellationToken);
+
+        // Who uploaded the self-service ones. Read from the employee rather than stored
+        // on the row, so a name change follows the person.
+        List<Guid> uploaderIds =
+        [
+            .. documents.Where(document => document.UploadedByEmployeeId is not null)
+                .Select(document => document.UploadedByEmployeeId!.Value)
+                .Distinct(),
+        ];
+
+        Dictionary<Guid, string> uploaders = uploaderIds.Count == 0
+            ? []
+            : await dbContext.Employees
+                .AsNoTracking()
+                .Where(employee => uploaderIds.Contains(employee.Id))
                 .ToDictionaryAsync(
                     employee => employee.Id,
                     employee => employee.FirstName + " " + employee.LastName,
@@ -817,6 +1323,18 @@ internal sealed class DocumentService(
                 AcknowledgedByMe = document.RequiresAcknowledgement
                     ? acknowledgedByMe.Contains(document.Id)
                     : null,
+                UploadedByEmployeeId = document.UploadedByEmployeeId,
+                UploadedByName = document.UploadedByEmployeeId is Guid uploader
+                    ? uploaders.GetValueOrDefault(uploader)
+                    : null,
+                ReviewStatus = document.ReviewStatus,
+                ReviewNote = document.ReviewNote,
+
+                // Theirs to move, bin or re-file. Only their own uploads: the
+                // self-service list also carries what HR assigned, and binning the
+                // staff handbook off your own file is not yours to do.
+                IsMine = me is Guid viewer
+                    && Domain.Documents.Documents.IsOwnedBy(document, viewer),
                 CreatedAt = document.CreatedAt,
             }),
         ];

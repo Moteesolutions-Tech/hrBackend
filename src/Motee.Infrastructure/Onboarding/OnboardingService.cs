@@ -161,6 +161,12 @@ internal sealed class OnboardingService(
                     SubjectType = SubjectType,
                     SubjectId = record.Id,
                     SubjectEmployeeId = employeeId,
+
+                    // Who is joining, which is the whole of what this review is
+                    // about — the register's other columns already say it is an
+                    // onboarding pack awaiting review.
+                    Title = "Joiner pack review",
+                    Summary = await NameOfAsync(employeeId, cancellationToken),
                 },
                 cancellationToken);
 
@@ -429,4 +435,17 @@ internal sealed class OnboardingService(
             }),
         ];
     }
+
+    // Who the pack belongs to, for the approval's summary. Snapshotted into the
+    // approval at submission rather than read through later: a register row saying
+    // which joiner it is about has to keep saying so even after the record moves on.
+    private async Task<string> NameOfAsync(
+        Guid employeeId,
+        CancellationToken cancellationToken) =>
+        await dbContext.Employees
+            .AsNoTracking()
+            .Where(employee => employee.Id == employeeId)
+            .Select(employee => employee.FirstName + " " + employee.LastName)
+            .FirstOrDefaultAsync(cancellationToken)
+        ?? "A new joiner";
 }

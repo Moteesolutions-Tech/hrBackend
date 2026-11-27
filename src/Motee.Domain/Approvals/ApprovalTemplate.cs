@@ -115,6 +115,31 @@ public class ApprovalInstance : ITenantScoped
 
     public required Guid SubjectId { get; set; }
 
+    // What the request is, in the words of the module that started it. Stored because
+    // the engine cannot derive it: it does not know what an onboarding record is, and
+    // the alternative is a register with a row per submission and no column saying what
+    // the submission is for.
+    //
+    // Snapshotted rather than read through to the subject, which matters when the
+    // subject moves. A leave request amended from five days to three keeps the summary
+    // the approver was shown, so the decision and what it was made about agree.
+    public string? Title { get; set; }
+
+    public string? Summary { get; set; }
+
+    // The fields somebody filled in, for a request raised from the intake form.
+    //
+    // On the instance because for an intake request the approval *is* the record: there
+    // is no promotion row waiting to be approved, so there is nowhere else for the
+    // values to live. Empty for every module-driven chain, which has its own table.
+    //
+    // jsonb, read whole and written whole. Never queried by its parts — the register
+    // filters on status, type, requester and date, and nothing searches inside a field
+    // map. Validated against ApprovalIntake's schema on the way in, so what is stored
+    // is only what the type asked for.
+    public IReadOnlyDictionary<string, string?> IntakeValues { get; set; } =
+        new Dictionary<string, string?>();
+
     public required ApprovalStatus Status { get; set; }
 
     // Whose approval this is. Usually an employee, so the resolvers have somewhere to
@@ -188,6 +213,13 @@ public class ApprovalStepInstance : ITenantScoped
     public DateTimeOffset? DecidedAt { get; set; }
 
     public string? Note { get; set; }
+
+    // The reviewer's signature, where the chain asked for one.
+    //
+    // On the step rather than on the run, because that is what it attests: this person
+    // decided this step. A signature hung on the instance would belong to the request
+    // as a whole, which is not a thing anybody signs.
+    public Guid? SignatureFileId { get; set; }
 
     // Why it was passed over, when it was. "on_leave" arrives with phase 3;
     // "unresolved" is the phase 1 case of nobody to ask.
@@ -267,4 +299,11 @@ public static class ApprovalEventTypes
     // quietly acquiring somebody to act on it is exactly the kind of change that has to
     // be accountable later.
     public const string Reresolved = "reresolved";
+
+    // A note without a decision: an approver asking for something, a submitter
+    // answering. In the same history as the decisions rather than a store of its own,
+    // because "they asked for a receipt, I sent one, they approved it" is one sequence
+    // and reading it out of two tables interleaved by timestamp is how it gets told
+    // wrongly.
+    public const string Commented = "commented";
 }

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Motee.Domain.Documents;
+using Motee.Domain.Employees;
 
 namespace Motee.Infrastructure.Persistence.Configurations;
 
@@ -15,6 +16,38 @@ internal sealed class DocumentFolderConfiguration : IEntityTypeConfiguration<Doc
         builder.HasKey(folder => folder.Id);
 
         builder.Property(folder => folder.Name).HasMaxLength(150).IsRequired();
+
+        // Presentation, so a short free string rather than an enum — the palette
+        // belongs to the client, and pinning it here would mean a release every time
+        // somebody wanted a different green.
+        builder.Property(folder => folder.Colour).HasMaxLength(20);
+
+        // Cascade: a person's drawers go when the person does. The documents inside
+        // are a separate question — they cascade from the document's own owner — and
+        // deleting a drawer with anything in it is refused before it gets here.
+        builder.HasOne<Employee>()
+            .WithMany()
+            .HasForeignKey(folder => folder.OwnerEmployeeId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Somebody's own drawers, which is every read on the self-service side.
+        builder.HasIndex(folder => new { folder.TenantId, folder.OwnerEmployeeId })
+            .HasDatabaseName("ix_document_folders_owner");
+
+        // The tree, declared so EF knows the dependency.
+        //
+        // The foreign key has always existed in the database; the model never said so,
+        // which was invisible while every folder was created on its own. Creating a
+        // parent and a child in one save then inserts them in whatever order EF
+        // guesses, and half the time the child goes first and the database refuses it.
+        //
+        // Restrict rather than cascade: deleting a folder with anything under it is
+        // refused in the service, and a cascade here would quietly take a subtree with
+        // it if that check were ever bypassed.
+        builder.HasOne<DocumentFolder>()
+            .WithMany()
+            .HasForeignKey(folder => folder.ParentId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(folder => folder.Type)
             .HasConversion<string>()
@@ -49,6 +82,28 @@ internal sealed class HrDocumentConfiguration : IEntityTypeConfiguration<HrDocum
         builder.HasKey(document => document.Id);
 
         builder.Property(document => document.Name).HasMaxLength(250).IsRequired();
+
+        builder.Property(document => document.ReviewStatus)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+        builder.Property(document => document.ReviewNote).HasMaxLength(1000);
+
+        // Set null rather than cascade: a document accepted onto the record stays on it
+        // after the person who uploaded it leaves. Losing the filing because the
+        // employee row went is the opposite of what a record is for.
+        builder.HasOne<Employee>()
+            .WithMany()
+            .HasForeignKey(document => document.UploadedByEmployeeId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // The review queue: awaiting, oldest first.
+        builder.HasIndex(document => new { document.TenantId, document.ReviewStatus })
+            .HasDatabaseName("ix_hr_documents_review");
+
+        // Somebody's own uploads, which the self-service list reads on every open.
+        builder.HasIndex(document => new { document.TenantId, document.UploadedByEmployeeId })
+            .HasDatabaseName("ix_hr_documents_uploader");
         builder.Property(document => document.Description).HasMaxLength(2000);
 
         builder.Property(document => document.Category)

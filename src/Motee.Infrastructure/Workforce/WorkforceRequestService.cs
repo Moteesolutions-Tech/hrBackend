@@ -214,6 +214,14 @@ internal sealed class WorkforceRequestService(
                     // manager" and "the head of their department" resolve to
                     // the right people.
                     SubjectEmployeeId = row.RequestedByEmployeeId,
+
+                    // The post being asked for, and how many. A register row
+                    // reading "workforce request" says nothing an approver can
+                    // act on; "Site Engineer · 2 hires" does.
+                    Title = row.Position,
+                    Summary = row.NumberOfHires == 1
+                        ? "1 hire"
+                        : $"{row.NumberOfHires} hires",
                 },
                 cancellationToken);
 
