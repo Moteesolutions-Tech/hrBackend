@@ -33,6 +33,142 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
 
     // Saying they have read it. Against the current version, so a reupload asks
     // again rather than inheriting an agreement to something else.
+    // ── self-service ────────────────────────────────────────────────────────
+    //
+    // RequiresEmployee throughout, like the rest of self-service: needing the documents
+    // module to keep your own certificates would mean granting every member of staff
+    // the screen showing the whole company's filing.
+    //
+    // Everything here acts on the caller's own drawer, and the service checks ownership
+    // on each one. That check is the whole of the safety: GET mine returns what HR
+    // assigned as well as what the employee uploaded, and only the second is theirs to
+    // move or bin.
+
+    [HttpPost("mine")]
+    [RequiresEmployee]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status201Created)]
+    public async Task<IActionResult> UploadMine(
+        SelfUploadRequest request,
+        CancellationToken cancellationToken)
+    {
+        DocumentResult result = await documents.UploadMineAsync(request, cancellationToken);
+
+        return result.Succeeded
+            ? CreatedEnvelope(result.Document!, "Uploaded for review.")
+            : Failure<DocumentDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
+    }
+
+    [HttpGet("mine/folders")]
+    [RequiresEmployee]
+    [ProducesResponseType<IReadOnlyList<FolderDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> MyFolders(CancellationToken cancellationToken) =>
+        Ok(await documents.MyFoldersAsync(cancellationToken));
+
+    [HttpPost("mine/folders")]
+    [RequiresEmployee]
+    [ProducesResponseType<FolderDto>(StatusCodes.Status201Created)]
+    public async Task<IActionResult> CreateMyFolder(
+        MyFolderRequest request,
+        CancellationToken cancellationToken)
+    {
+        FolderResult result = await documents.SaveMyFolderAsync(
+            null, request, cancellationToken);
+
+        return result.Succeeded
+            ? CreatedEnvelope(result.Folder!, "Folder created.")
+            : Failure<FolderDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
+    }
+
+    [HttpPut("mine/folders/{id:guid}")]
+    [RequiresEmployee]
+    [ProducesResponseType<FolderDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateMyFolder(
+        Guid id,
+        MyFolderRequest request,
+        CancellationToken cancellationToken)
+    {
+        FolderResult result = await documents.SaveMyFolderAsync(id, request, cancellationToken);
+
+        return result.Succeeded
+            ? Ok(result.Folder!, "Folder updated.")
+            : Failure<FolderDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
+    }
+
+    [HttpDelete("mine/folders/{id:guid}")]
+    [RequiresEmployee]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> DeleteMyFolder(Guid id, CancellationToken cancellationToken)
+    {
+        DocumentOutcome outcome = await documents.DeleteMyFolderAsync(id, cancellationToken);
+
+        return outcome == DocumentOutcome.Succeeded
+            ? Ok<object?>(null, "Folder deleted.")
+            : Failure<object?>(StatusFor(outcome), MessageFor(outcome));
+    }
+
+    [HttpPost("mine/{id:guid}/move")]
+    [RequiresEmployee]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> MoveMine(
+        Guid id,
+        [FromBody] MoveDocumentRequest? request,
+        CancellationToken cancellationToken) =>
+        RespondMine(
+            await documents.MoveMineAsync(id, request?.FolderId, cancellationToken),
+            "Document moved.");
+
+    [HttpPost("mine/{id:guid}/trash")]
+    [RequiresEmployee]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> TrashMine(Guid id, CancellationToken cancellationToken) =>
+        RespondMine(await documents.TrashMineAsync(id, cancellationToken), "Document binned.");
+
+    [HttpPost("mine/{id:guid}/restore")]
+    [RequiresEmployee]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> RestoreMine(Guid id, CancellationToken cancellationToken) =>
+        RespondMine(await documents.RestoreMineAsync(id, cancellationToken), "Document restored.");
+
+    // ── HR's review queue ───────────────────────────────────────────────────
+    //
+    // Behind Edit rather than View: accepting an upload files it onto somebody's record,
+    // so the privilege that matters is deciding, not reading the queue.
+
+    [HttpGet("reviews")]
+    [ProducesResponseType<PagedResult<DocumentDto>>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Edit)]
+    public async Task<IActionResult> Reviews(
+        [FromQuery] PagedQuery query,
+        CancellationToken cancellationToken) =>
+        Ok(await documents.ReviewsAsync(query, cancellationToken));
+
+    [HttpPost("reviews/{id:guid}/approve")]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Edit)]
+    public async Task<IActionResult> AcceptUpload(
+        Guid id,
+        [FromBody] ReviewUploadRequest? request,
+        CancellationToken cancellationToken) =>
+        RespondMine(
+            await documents.AcceptUploadAsync(id, request?.Note, cancellationToken),
+            "Document accepted onto the record.");
+
+    [HttpPost("reviews/{id:guid}/reject")]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Edit)]
+    public async Task<IActionResult> RejectUpload(
+        Guid id,
+        RejectUploadRequest request,
+        CancellationToken cancellationToken) =>
+        RespondMine(
+            await documents.RejectUploadAsync(id, request.Reason, cancellationToken),
+            "Document rejected.");
+
+    private IActionResult RespondMine(DocumentResult result, string message) =>
+        result.Succeeded
+            ? Ok(result.Document!, message)
+            : Failure<DocumentDto>(StatusFor(result.Outcome), MessageFor(result.Outcome));
+
     [HttpPost("mine/{id:guid}/acknowledge")]
     [RequiresEmployee]
     [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
@@ -221,7 +357,15 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
             MoteeStatusCodes.NotFound,
         DocumentOutcome.DuplicateFolderName or DocumentOutcome.FolderNotEmpty
             or DocumentOutcome.AlreadyAcknowledged or DocumentOutcome.AlreadyShared
-            or DocumentOutcome.FolderNotDeletable => MoteeStatusCodes.Conflict,
+            or DocumentOutcome.FolderNotDeletable
+            or DocumentOutcome.AlreadyReviewed
+            or DocumentOutcome.NotAwaitingReview => MoteeStatusCodes.Conflict,
+
+        // Not found rather than forbidden, for a document or folder belonging to
+        // somebody else. Telling them an id exists but is none of their business is
+        // itself a fact about the filing.
+        DocumentOutcome.NotYours => MoteeStatusCodes.NotFound,
+        DocumentOutcome.NoEmployeeRecord => MoteeStatusCodes.Forbidden,
         _ => MoteeStatusCodes.InvalidRequest,
     };
 
@@ -247,6 +391,19 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
             "You have already acknowledged this version.",
         DocumentOutcome.AlreadyShared =>
             "They already have this document. Change their permission instead.",
+        DocumentOutcome.NoEmployeeRecord =>
+            "This account has no employee record, so it has no documents of its own.",
+
+        // Says it is not theirs without saying whose. A document HR assigned is theirs
+        // to read and not to bin, and a folder belonging to a colleague is none of
+        // their business — including the fact that it exists.
+        DocumentOutcome.NotYours => "That is not yours to change.",
+        DocumentOutcome.AlreadyReviewed => "That upload has already been decided.",
+        DocumentOutcome.NotAwaitingReview =>
+            "That document was filed by HR, so there is nothing to review.",
+        DocumentOutcome.ReasonRequired =>
+            "Say why it was refused — a rejection with no reason sends somebody to HR "
+            + "to ask.",
         _ => "Could not save the document.",
     };
 }
@@ -254,4 +411,22 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
 public sealed record RenameFolderRequest
 {
     public required string Name { get; init; }
+}
+
+public sealed record MoveDocumentRequest
+{
+    // Null means out of any drawer, back to the top of their own list.
+    public Guid? FolderId { get; init; }
+}
+
+public sealed record ReviewUploadRequest
+{
+    // Optional on an acceptance. The upload already explains itself; a note is for
+    // the cases where HR wants to add something.
+    public string? Note { get; init; }
+}
+
+public sealed record RejectUploadRequest
+{
+    public required string Reason { get; init; }
 }

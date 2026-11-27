@@ -14,6 +14,11 @@ internal sealed class ApprovalService(
     ApprovalAttachmentLinker attachmentLinks,
     IEnumerable<IApprovalObserver> observers,
     IRequestContext requestContext,
+
+    // For intake only: an intake request is about the person raising it, which is what
+    // the positional resolvers need — "their line manager", "the head of their
+    // department". A module-driven chain passes its own subject instead.
+    ICurrentEmployee currentEmployee,
     TimeProvider timeProvider) : IApprovalService
 {
     public async Task<ApprovalResult> StartAsync(
@@ -63,14 +68,32 @@ internal sealed class ApprovalService(
             TemplateId = template.Id,
             DocumentType = template.DocumentType,
             SubjectType = request.SubjectType,
+            // An intake request is its own subject: Guid.Empty arrives from RaiseAsync
+            // because the id does not exist until the row does, and is filled in below.
+            // The engine insists every instance has a subject, and for a request with no
+            // module behind it the approval *is* the record.
             SubjectId = request.SubjectId,
             SubjectEmployeeId = request.SubjectEmployeeId,
+
+            // Carried opaquely, trimmed only. The engine never parses these; they are
+            // the starting module's own words for what the request is.
+            Title = Trimmed(request.Title),
+            Summary = Trimmed(request.Summary),
+            IntakeValues = request.IntakeValues,
             Status = ApprovalStatus.InProgress,
             SubmittedByUserId = CurrentUser(),
             SubmittedAt = now,
             CreatedAt = now,
             UpdatedAt = now,
         };
+
+        // An intake request is its own subject. Done here rather than by the caller
+        // because the id is this method's to mint, and a row whose subject pointed at
+        // Guid.Empty would claim to be about something that cannot exist.
+        if (instance.SubjectType == ApprovalIntake.SubjectType)
+        {
+            instance.SubjectId = instance.Id;
+        }
 
         dbContext.ApprovalInstances.Add(instance);
 
@@ -348,6 +371,7 @@ internal sealed class ApprovalService(
         Guid id,
         ApprovalStepStatus decision,
         string? note = null,
+        Guid? signatureFileId = null,
         CancellationToken cancellationToken = default)
     {
         ApprovalInstance? instance = await dbContext.ApprovalInstances
@@ -378,12 +402,30 @@ internal sealed class ApprovalService(
             return ApprovalResult.Failed(ApprovalOutcome.NotTheApprover);
         }
 
+        // Only on an approval. Refusing is not signed, and a signature stored against a
+        // rejection would read as the reviewer having endorsed what they turned down.
+        if (signatureFileId is Guid signature)
+        {
+            if (decision != ApprovalStepStatus.Approved)
+            {
+                return ApprovalResult.Failed(
+                    ApprovalOutcome.NotAllowed,
+                    "A signature belongs on an approval, not on a refusal.");
+            }
+
+            if (!await IsSignatureAsync(signature, cancellationToken))
+            {
+                return ApprovalResult.Failed(ApprovalOutcome.AttachmentNotAllowed);
+            }
+        }
+
         DateTimeOffset now = timeProvider.GetUtcNow();
 
         step.Status = decision;
         step.DecidedByUserId = CurrentUser();
         step.DecidedAt = now;
         step.Note = Trimmed(note);
+        step.SignatureFileId = signatureFileId;
 
         Record(instance, EventFor(decision), step.Sequence, Trimmed(note), now);
 
@@ -429,6 +471,236 @@ internal sealed class ApprovalService(
         {
             await observer.OnSettledAsync(approval, cancellationToken);
         }
+    }
+
+    public async Task<IReadOnlyList<RaisableTypeDto>> DocumentTypesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // A type is raisable when a chain is configured for it. Without one there is
+        // nobody to send the request to, and offering it would be a form that always
+        // comes back "no approval chain is configured for this".
+        List<ApprovalTemplate> defaults = await dbContext.ApprovalTemplates
+            .AsNoTracking()
+            .Where(template => template.IsActive && template.IsDefault)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. defaults
+                .Where(template => !ApprovalIntake.IsModuleDriven(template.DocumentType))
+                .GroupBy(template => template.DocumentType, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new RaisableTypeDto
+                {
+                    Key = group.Key,
+                    Label = Humanise(group.Key),
+                    Fields = ApprovalIntake.FieldsFor(group.Key),
+                    Attachments = group.First().Attachments,
+                })
+                .OrderBy(type => type.Label, StringComparer.OrdinalIgnoreCase),
+        ];
+    }
+
+    // "asset_request" becomes "Asset request". Derived rather than looked up, so a
+    // tenant's own category reads from its own words — a lookup table would not have it,
+    // and the fallback would be the raw key on screen.
+    private static string Humanise(string key)
+    {
+        string spaced = key.Replace('_', ' ').Replace('-', ' ').Trim();
+
+        return spaced.Length == 0
+            ? key
+            : char.ToUpperInvariant(spaced[0]) + spaced[1..].ToLowerInvariant();
+    }
+
+    public async Task<ApprovalResult> RaiseAsync(
+        RaiseApprovalRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        string? documentType = Trimmed(request.DocumentType);
+
+        if (documentType is null)
+        {
+            return ApprovalResult.Failed(
+                ApprovalOutcome.TemplateNotFound, "Pick a request type.");
+        }
+
+        // The rule this endpoint exists to enforce. A module-driven type creates its
+        // record first and then asks for a decision on it: leave reserves days against a
+        // balance, a loan computes a repayment schedule. Raising one here would make an
+        // approval with nothing behind it — approved leave that was never booked, which
+        // the settlement observer skips in silence because there is no request to update.
+        if (ApprovalIntake.IsModuleDriven(documentType))
+        {
+            return ApprovalResult.Failed(
+                ApprovalOutcome.NotAllowed,
+                $"A {Humanise(documentType).ToLowerInvariant()} is raised from its own "
+                + "screen, which records the request as well as asking for a decision.");
+        }
+
+        string? title = Trimmed(request.Title);
+
+        if (title is null)
+        {
+            return ApprovalResult.Failed(
+                ApprovalOutcome.NotAllowed, "Say what the request is.");
+        }
+
+        if (title.Length > ApprovalIntake.LongestTitle)
+        {
+            return ApprovalResult.Failed(ApprovalOutcome.NotAllowed, "That title is too long.");
+        }
+
+        (string field, ApprovalIntake.FieldRefusal refusal) =
+            ApprovalIntake.Check(documentType, request.Fields);
+
+        if (refusal != ApprovalIntake.FieldRefusal.None)
+        {
+            return ApprovalResult.Failed(
+                ApprovalOutcome.NotAllowed, Explain(documentType, field, refusal));
+        }
+
+        // Through StartAsync, so an intake request resolves its approvers, snapshots its
+        // template and records its submission exactly as a module-driven one does. The
+        // only differences are the subject and the field map.
+        return await StartAsync(
+            new StartApprovalRequest
+            {
+                DocumentType = documentType,
+
+                // Self-referential, filled in by StartAsync once the id exists. The
+                // engine insists every instance has a subject, and for an intake request
+                // the approval is the record — so it is its own subject rather than a
+                // row pointing at nothing.
+                SubjectType = ApprovalIntake.SubjectType,
+                SubjectId = Guid.Empty,
+                SubjectEmployeeId = await currentEmployee.IdAsync(cancellationToken),
+                Title = title,
+                Summary = Trimmed(request.Summary),
+                IntakeValues = Tidy(documentType, request.Fields),
+                TemplateId = request.TemplateId,
+                FileIds = request.FileIds,
+            },
+            cancellationToken);
+    }
+
+    // Trimmed, and reduced to the keys the schema actually names — so the stored map is
+    // what the type asked for and nothing else, in the schema's own spelling.
+    private static Dictionary<string, string?> Tidy(
+        string documentType,
+        IReadOnlyDictionary<string, string?> values)
+    {
+        Dictionary<string, string?> tidied = new(StringComparer.Ordinal);
+
+        foreach (IntakeField field in ApprovalIntake.FieldsFor(documentType))
+        {
+            string? value = values.FirstOrDefault(pair =>
+                string.Equals(pair.Key, field.Key, StringComparison.OrdinalIgnoreCase)).Value;
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                tidied[field.Key] = value.Trim();
+            }
+        }
+
+        return tidied;
+    }
+
+    private static string Explain(
+        string documentType,
+        string field,
+        ApprovalIntake.FieldRefusal refusal)
+    {
+        string label = ApprovalIntake.FieldsFor(documentType)
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.Key, field, StringComparison.OrdinalIgnoreCase))
+            ?.Label
+            ?? field;
+
+        return refusal switch
+        {
+            ApprovalIntake.FieldRefusal.Missing => $"{label} is needed.",
+            ApprovalIntake.FieldRefusal.NotANumber => $"{label} has to be a number.",
+            ApprovalIntake.FieldRefusal.NotADate =>
+                $"{label} has to be a date, written as YYYY-MM-DD.",
+            ApprovalIntake.FieldRefusal.NotAnOption => $"{label} is not one of the choices.",
+            ApprovalIntake.FieldRefusal.TooLong => $"{label} is too long.",
+            ApprovalIntake.FieldRefusal.Unknown =>
+                $"This kind of request does not ask for '{field}'.",
+            _ => "That request was not accepted.",
+        };
+    }
+
+    public async Task<ApprovalResult> CommentAsync(
+        Guid id,
+        string message,
+        CancellationToken cancellationToken = default)
+    {
+        string? note = Trimmed(message);
+
+        if (note is null)
+        {
+            return ApprovalResult.Failed(
+                ApprovalOutcome.NotAllowed, "A comment needs something in it.");
+        }
+
+        ApprovalInstance? instance = await dbContext.ApprovalInstances
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (instance is null)
+        {
+            return ApprovalResult.Failed(ApprovalOutcome.NotFound);
+        }
+
+        if (CurrentUser() is not Guid actor)
+        {
+            return ApprovalResult.Failed(ApprovalOutcome.NotTheApprover);
+        }
+
+        // Party to the chain: the person who raised it, or anybody a step resolved to.
+        // Not the module permission — an approver need not hold it to have been asked
+        // to decide, which is the same reasoning the decide path uses.
+        //
+        // Deliberately not restricted to the step currently waiting. An approver three
+        // steps down who can already see the request has something useful to say about
+        // it before it reaches them, and silence until their turn is how a chain spends
+        // a week finding out the receipt was missing.
+        bool party = instance.SubmittedByUserId == actor;
+
+        if (!party)
+        {
+            List<ApprovalStepInstance> steps = await dbContext.ApprovalStepInstances
+                .AsNoTracking()
+                .Where(step => step.InstanceId == id)
+                .ToListAsync(cancellationToken);
+
+            foreach (ApprovalStepInstance step in steps)
+            {
+                if (await CanActAsync(step, actor, cancellationToken))
+                {
+                    party = true;
+
+                    break;
+                }
+            }
+        }
+
+        if (!party)
+        {
+            return ApprovalResult.Failed(ApprovalOutcome.NotTheApprover);
+        }
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+
+        // No step order: a comment is about the request, not about one step of it.
+        Record(instance, ApprovalEventTypes.Commented, stepOrder: null, note, now);
+
+        // The instance itself is untouched — a comment is not a decision, and bumping
+        // the status or the round would make the history say one happened.
+        instance.UpdatedAt = now;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return ApprovalResult.Ok(await ProjectAsync(instance, cancellationToken));
     }
 
     public async Task<ApprovalResult> ResubmitAsync(
@@ -872,10 +1144,36 @@ internal sealed class ApprovalService(
                 Status = step.Status,
                 DecidedAt = step.DecidedAt,
                 Note = step.Note,
+                SignatureFileId = step.SignatureFileId,
+
+                // Signed after the query, like the attachments. A link with a lifetime
+                // cannot come out of a projection.
+                SignatureUrl = null,
                 SkippedReason = step.SkippedReason,
                 Delegation = step.Delegation,
             })
             .ToListAsync(cancellationToken);
+
+        // Signature links, for the steps that carry one. One call for the whole chain
+        // rather than one per step, and skipped entirely when nobody signed — which is
+        // most chains.
+        List<Guid> signatures =
+            [.. steps.Where(step => step.SignatureFileId is not null)
+                .Select(step => step.SignatureFileId!.Value)];
+
+        if (signatures.Count > 0)
+        {
+            IReadOnlyDictionary<Guid, string> signed =
+                await attachmentLinks.UrlsForAsync(signatures, cancellationToken);
+
+            steps =
+            [
+                .. steps.Select(step => step.SignatureFileId is Guid file
+                    && signed.TryGetValue(file, out string? url)
+                        ? step with { SignatureUrl = url }
+                        : step),
+            ];
+        }
 
         List<ApprovalEventDto> history = await dbContext.ApprovalEvents
             .AsNoTracking()
@@ -977,6 +1275,13 @@ internal sealed class ApprovalService(
             SubjectType = instance.SubjectType,
             SubjectId = instance.SubjectId,
             SubjectEmployeeId = instance.SubjectEmployeeId,
+            Title = instance.Title,
+            Summary = instance.Summary,
+            Fields = instance.IntakeValues,
+
+            // The schema the values were filled in against, sent so the detail page can
+            // label and order them without holding its own copy.
+            FieldSchema = ApprovalIntake.FieldsFor(instance.DocumentType),
             SubmittedByUserId = instance.SubmittedByUserId,
             SubmittedByEmployeeId = submitter?.EmployeeId,
             SubmittedByName = submitter?.Name,
@@ -1000,6 +1305,16 @@ internal sealed class ApprovalService(
             DecidedAt = instance.DecidedAt,
         };
     }
+
+    // An image uploaded for this purpose and nothing else. The purpose is the check:
+    // the files module already refuses anything but an image under it, so a signature
+    // cannot arrive as a spreadsheet by being renamed here.
+    private async Task<bool> IsSignatureAsync(
+        Guid fileId,
+        CancellationToken cancellationToken) =>
+        await dbContext.StoredFiles.AnyAsync(
+            file => file.Id == fileId && file.Purpose == FilePurpose.ApprovalSignature,
+            cancellationToken);
 
     private sealed record Submitter(Guid? EmployeeId, string Name);
 

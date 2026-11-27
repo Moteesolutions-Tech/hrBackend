@@ -240,6 +240,8 @@ public static class DependencyInjection
         services.AddScoped<AvatarLinker>();
         services.AddScoped<IEmployeeService, EmployeeService>();
         services.AddScoped<IChangeRequestService, Employees.ChangeRequestService>();
+        services.AddScoped<Reports.ReportRowProviders>();
+        services.AddScoped<Application.Reports.IReportService, Reports.ReportService>();
         services.AddScoped<IEmployeeImportService, EmployeeImportService>();
         services.AddScoped<IEmployeeInvitationService, EmployeeInvitationService>();
         services.AddScoped<IExportService, ExportService>();

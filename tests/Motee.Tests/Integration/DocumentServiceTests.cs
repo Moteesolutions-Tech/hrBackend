@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
 using Motee.Application.Common;
@@ -8,6 +9,7 @@ using Motee.Domain.Documents;
 using Motee.Domain.Employees;
 using Motee.Domain.Files;
 using Motee.Domain.Organisation;
+using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 
 namespace Motee.Tests.Integration;
@@ -558,5 +560,400 @@ public class DocumentServiceTests(PostgresFixture fixture)
         Assert.Equal(2, report.TotalAssigned);
         Assert.Equal("Bola Okafor", Assert.Single(report.Acknowledged).EmployeeName);
         Assert.Equal("Cara Okafor", Assert.Single(report.Outstanding));
+    }
+
+    // ── self-service uploads ────────────────────────────────────────────────
+    //
+    // The rule running through all of this: /documents/mine carries two different
+    // things — what HR shared or assigned, and what the employee uploaded — and only
+    // the second is theirs to move, bin or re-file. Without that, somebody could bin
+    // the staff handbook off their own file or move their contract where HR cannot
+    // find it.
+
+    private async Task<Guid> UploadMineAsync(
+        ServiceProvider provider,
+        string name = "First aid certificate",
+        Guid? folderId = null)
+    {
+        DocumentResult uploaded = await Resolve<IDocumentService>(provider).UploadMineAsync(
+            new SelfUploadRequest
+            {
+                Name = name,
+                FileId = await FileAsync($"{name}.pdf"),
+                FolderId = folderId,
+            });
+
+        Assert.True(uploaded.Succeeded, uploaded.Outcome.ToString());
+
+        return uploaded.Document!.Id;
+    }
+
+    [SkippableFact]
+    public async Task AnUploadLandsAwaitingReviewAndNotInTheLibrary()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        // Theirs, and visible to them straight away.
+        DocumentDto mine = Assert.Single(
+            await Resolve<IDocumentService>(provider).MineAsync(),
+            document => document.Id == id);
+
+        Assert.Equal(DocumentReviewStatus.AwaitingReview, mine.ReviewStatus);
+        Assert.Equal(_employeeId, mine.UploadedByEmployeeId);
+        Assert.True(mine.IsMine);
+
+        // And deliberately not in the company's filing. This is the whole point of the
+        // queue: without it an employee could put anything on the record by uploading
+        // it, and HR would find it already there.
+        PagedResult<DocumentDto> library =
+            await Resolve<IDocumentService>(provider).ListAsync(new DocumentQuery());
+
+        Assert.DoesNotContain(library.Items, document => document.Id == id);
+
+        // It is in the review queue instead.
+        PagedResult<DocumentDto> queue =
+            await Resolve<IDocumentService>(provider).ReviewsAsync(new PagedQuery());
+
+        Assert.Equal(id, Assert.Single(queue.Items).Id);
+    }
+
+    [SkippableFact]
+    public async Task AcceptingAnUploadFilesItOntoTheRecord()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        DocumentResult accepted = await Resolve<IDocumentService>(provider)
+            .AcceptUploadAsync(id, "Checked against the original.");
+
+        Assert.True(accepted.Succeeded, accepted.Outcome.ToString());
+        Assert.Equal(DocumentReviewStatus.Accepted, accepted.Document!.ReviewStatus);
+
+        // Now part of the library, which is what accepting means.
+        PagedResult<DocumentDto> library =
+            await Resolve<IDocumentService>(provider).ListAsync(new DocumentQuery());
+
+        Assert.Contains(library.Items, document => document.Id == id);
+
+        // And out of the queue.
+        Assert.Empty((await Resolve<IDocumentService>(provider)
+            .ReviewsAsync(new PagedQuery())).Items);
+    }
+
+    [SkippableFact]
+    public async Task ARejectedUploadStaysVisibleToWhoeverSentIt()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        DocumentResult rejected = await Resolve<IDocumentService>(provider)
+            .RejectUploadAsync(id, "The scan is unreadable — please send a clearer one.");
+
+        Assert.True(rejected.Succeeded, rejected.Outcome.ToString());
+
+        DocumentDto mine = Assert.Single(
+            await Resolve<IDocumentService>(provider).MineAsync(),
+            document => document.Id == id);
+
+        // Still theirs to see, with the reason. Hiding it would leave them unable to
+        // tell a refusal from an upload that never arrived.
+        Assert.Equal(DocumentReviewStatus.Rejected, mine.ReviewStatus);
+        Assert.Equal(
+            "The scan is unreadable — please send a clearer one.", mine.ReviewNote);
+
+        // Not in the library, and not back in the queue.
+        Assert.DoesNotContain(
+            (await Resolve<IDocumentService>(provider).ListAsync(new DocumentQuery())).Items,
+            document => document.Id == id);
+
+        Assert.Empty((await Resolve<IDocumentService>(provider)
+            .ReviewsAsync(new PagedQuery())).Items);
+    }
+
+    [SkippableFact]
+    public async Task RejectingWithoutAReasonIsRefused()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        Assert.Equal(
+            DocumentOutcome.ReasonRequired,
+            (await Resolve<IDocumentService>(provider).RejectUploadAsync(id, "  ")).Outcome);
+    }
+
+    [SkippableFact]
+    public async Task DecidingTwiceIsRefused()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        Assert.True((await Resolve<IDocumentService>(provider).AcceptUploadAsync(id)).Succeeded);
+
+        Assert.Equal(
+            DocumentOutcome.AlreadyReviewed,
+            (await Resolve<IDocumentService>(provider).AcceptUploadAsync(id)).Outcome);
+    }
+
+    // HR filing a document is not a request for permission, so there is nothing to
+    // review — and a decision on one would record a sign-off nobody asked for.
+    [SkippableFact]
+    public async Task ADocumentHrFiledCannotBeReviewed()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        DocumentResult filed = await Resolve<IDocumentService>(provider).CreateAsync(
+            new CreateDocumentRequest
+            {
+                Name = "Staff handbook",
+                Category = DocumentCategory.Policy,
+                FolderId = await AnyFolderAsync(provider),
+                StoredFileId = await FileAsync(),
+            });
+
+        Assert.True(filed.Succeeded, filed.Outcome.ToString());
+        Assert.Null(filed.Document!.ReviewStatus);
+
+        Assert.Equal(
+            DocumentOutcome.NotAwaitingReview,
+            (await Resolve<IDocumentService>(provider)
+                .AcceptUploadAsync(filed.Document.Id)).Outcome);
+    }
+
+    // ── ownership ───────────────────────────────────────────────────────────
+
+    // The rule that matters most. An employee may bin their own upload and nothing
+    // else — a document HR assigned is theirs to read, not to remove from their file.
+    [SkippableFact]
+    public async Task AnEmployeeCannotBinADocumentHrAssignedToThem()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        DocumentResult handbook = await Resolve<IDocumentService>(provider).CreateAsync(
+            new CreateDocumentRequest
+            {
+                Name = "Staff handbook",
+                Category = DocumentCategory.Policy,
+                FolderId = await AnyFolderAsync(provider),
+                StoredFileId = await FileAsync(),
+                Assignment = AssignmentScope.Global,
+            });
+
+        Assert.True(handbook.Succeeded, handbook.Outcome.ToString());
+
+        // It reaches them — that is the point of a global assignment.
+        DocumentDto seen = Assert.Single(
+            await Resolve<IDocumentService>(provider).MineAsync(),
+            document => document.Id == handbook.Document!.Id);
+
+        // And the response says plainly that it is not theirs to touch.
+        Assert.False(seen.IsMine);
+
+        Assert.Equal(
+            DocumentOutcome.NotYours,
+            (await Resolve<IDocumentService>(provider)
+                .TrashMineAsync(handbook.Document!.Id)).Outcome);
+    }
+
+    [SkippableFact]
+    public async Task AnEmployeeCanBinAndRestoreTheirOwnUpload()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        DocumentResult binned = await Resolve<IDocumentService>(provider).TrashMineAsync(id);
+
+        Assert.True(binned.Succeeded, binned.Outcome.ToString());
+        Assert.True(binned.Document!.IsTrashed);
+
+        DocumentResult restored = await Resolve<IDocumentService>(provider)
+            .RestoreMineAsync(id);
+
+        Assert.True(restored.Succeeded, restored.Outcome.ToString());
+        Assert.False(restored.Document!.IsTrashed);
+    }
+
+    [SkippableFact]
+    public async Task AnEmployeeCannotTouchAColleaguesUpload()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        // Act as Cara, who uploaded nothing.
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            (await GiveAccountAsync(_colleagueId, "cara")).ToString();
+
+        Assert.Equal(
+            DocumentOutcome.NotYours,
+            (await Resolve<IDocumentService>(provider).TrashMineAsync(id)).Outcome);
+
+        Assert.Equal(
+            DocumentOutcome.NotYours,
+            (await Resolve<IDocumentService>(provider).MoveMineAsync(id, null)).Outcome);
+    }
+
+    // ── their own drawers ───────────────────────────────────────────────────
+
+    [SkippableFact]
+    public async Task AnEmployeeKeepsTheirOwnFolders()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        FolderResult made = await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+            null, new MyFolderRequest { Name = "Certificates", Colour = "emerald" });
+
+        Assert.True(made.Succeeded, made.Outcome.ToString());
+        Assert.Equal("Certificates", made.Folder!.Name);
+        Assert.Equal("emerald", made.Folder.Colour);
+        Assert.Equal(FolderType.Personal, made.Folder.Type);
+
+        // Their list shows theirs and nobody else's: the company's folders are a
+        // separate tree, reached through the documents they have been given.
+        //
+        // Two of them — their drawer, created the moment anything needed one, and the
+        // folder they just made inside it. The drawer is on the list because it holds
+        // documents and the screen has to be able to show them.
+        IReadOnlyList<FolderDto> mine =
+            await Resolve<IDocumentService>(provider).MyFoldersAsync();
+
+        Assert.Equal(2, mine.Count);
+
+        FolderDto drawer = Assert.Single(mine, folder => folder.ParentId == null);
+        FolderDto made2 = Assert.Single(mine, folder => folder.Id == made.Folder.Id);
+
+        Assert.Equal("My documents", drawer.Name);
+
+        // Inside the drawer, not beside it — one root per person, so "no folder
+        // chosen" has exactly one meaning.
+        Assert.Equal(drawer.Id, made2.ParentId);
+    }
+
+    [SkippableFact]
+    public async Task AColleaguesFolderIsNotMineToRenameOrDelete()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid folderId = (await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+            null, new MyFolderRequest { Name = "Certificates" })).Folder!.Id;
+
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            (await GiveAccountAsync(_colleagueId, "cara")).ToString();
+
+        // Cara has no drawer yet, so no folders at all — and certainly not Bola's.
+        Assert.Empty(await Resolve<IDocumentService>(provider).MyFoldersAsync());
+
+        Assert.Equal(
+            DocumentOutcome.NotYours,
+            (await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+                folderId, new MyFolderRequest { Name = "Mine now" })).Outcome);
+
+        Assert.Equal(
+            DocumentOutcome.NotYours,
+            await Resolve<IDocumentService>(provider).DeleteMyFolderAsync(folderId));
+    }
+
+    // Emptied first, like a company folder. Deleting a drawer of documents by accident
+    // is not recoverable the way binning one document is.
+    [SkippableFact]
+    public async Task ADrawerWithAnythingInItCannotBeDeleted()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid folderId = (await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+            null, new MyFolderRequest { Name = "Certificates" })).Folder!.Id;
+
+        Guid id = await UploadMineAsync(provider, folderId: folderId);
+
+        Assert.Equal(
+            DocumentOutcome.FolderNotEmpty,
+            await Resolve<IDocumentService>(provider).DeleteMyFolderAsync(folderId));
+
+        // Moved out, and then it goes.
+        Assert.True((await Resolve<IDocumentService>(provider)
+            .MoveMineAsync(id, null)).Succeeded);
+
+        Assert.Equal(
+            DocumentOutcome.Succeeded,
+            await Resolve<IDocumentService>(provider).DeleteMyFolderAsync(folderId));
+    }
+
+    [SkippableFact]
+    public async Task AnUploadWithNoFolderGoesToTheirDefaultDrawer()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await UploadMineAsync(provider);
+
+        // Created on demand. FolderType.Personal existed for exactly this and nothing
+        // could reach it before.
+        FolderDto drawer = Assert.Single(
+            await Resolve<IDocumentService>(provider).MyFoldersAsync());
+
+        Assert.Equal("My documents", drawer.Name);
+        Assert.Equal(1, drawer.DocumentCount);
+    }
+
+    [SkippableFact]
+    public async Task TwoDrawersCannotShareAName()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Assert.True((await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+            null, new MyFolderRequest { Name = "Certificates" })).Succeeded);
+
+        Assert.Equal(
+            DocumentOutcome.DuplicateFolderName,
+            (await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+                null, new MyFolderRequest { Name = "Certificates" })).Outcome);
+    }
+
+    // The owner permanently has no employee record — they run the company's account
+    // rather than working there, so they have no drawer of their own.
+    [SkippableFact]
+    public async Task AnAccountWithNoEmployeeRecordHasNoDrawer()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid ownerUserId;
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            ApplicationUser owner = await seed.Users.FirstAsync(
+                user => user.TenantId == _tenantId && user.EmployeeId == null);
+
+            ownerUserId = owner.Id;
+        }
+
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            ownerUserId.ToString();
+
+        Assert.Empty(await Resolve<IDocumentService>(provider).MyFoldersAsync());
+
+        Assert.Equal(
+            DocumentOutcome.NoEmployeeRecord,
+            (await Resolve<IDocumentService>(provider).SaveMyFolderAsync(
+                null, new MyFolderRequest { Name = "Mine" })).Outcome);
     }
 }

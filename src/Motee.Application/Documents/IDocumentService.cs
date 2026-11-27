@@ -81,6 +81,68 @@ public interface IDocumentService
     // employee's problem.
     Task<IReadOnlyList<DocumentDto>> MineAsync(CancellationToken cancellationToken = default);
 
+    // ── self-service ────────────────────────────────────────────────────────
+    //
+    // Everything below acts as the signed-in employee, on their own drawer. The rule
+    // running through all of it is that /documents/mine returns two different things —
+    // what HR shared or assigned, and what the employee put there — and only the second
+    // is theirs to move, bin or re-file. Without that distinction somebody could bin the
+    // staff handbook off their own file, or move their contract where HR cannot find it.
+
+    // Uploading something for HR to look at: a certificate, a licence renewal.
+    //
+    // Lands awaiting review rather than filed. A document waiting to be accepted is not
+    // part of the record — otherwise an employee could put anything on their own file
+    // by uploading it, which is the whole reason the queue exists.
+    Task<DocumentResult> UploadMineAsync(
+        SelfUploadRequest request,
+        CancellationToken cancellationToken = default);
+
+    // Their own drawers. Personal folders, owned by them — not the company's filing,
+    // which they see through the shared documents they have been given.
+    Task<IReadOnlyList<FolderDto>> MyFoldersAsync(CancellationToken cancellationToken = default);
+
+    Task<FolderResult> SaveMyFolderAsync(
+        Guid? id,
+        MyFolderRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<DocumentOutcome> DeleteMyFolderAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    // Null folder means out of any drawer, back to the top of their own list.
+    Task<DocumentResult> MoveMineAsync(
+        Guid id,
+        Guid? folderId,
+        CancellationToken cancellationToken = default);
+
+    Task<DocumentResult> TrashMineAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<DocumentResult> RestoreMineAsync(Guid id, CancellationToken cancellationToken = default);
+
+    // ── HR's review queue ───────────────────────────────────────────────────
+
+    // Self-service uploads waiting to be looked at, oldest first: a queue is worked
+    // from the end that has been waiting longest.
+    Task<PagedResult<DocumentDto>> ReviewsAsync(
+        PagedQuery query,
+        CancellationToken cancellationToken = default);
+
+    // Accepts the upload onto the employee's record, which is what makes it part of
+    // the library rather than a pending request.
+    Task<DocumentResult> AcceptUploadAsync(
+        Guid id,
+        string? note = null,
+        CancellationToken cancellationToken = default);
+
+    // Refused, with a reason, and still visible to whoever uploaded it. Hiding it would
+    // leave them unable to tell a rejection from an upload that never arrived.
+    Task<DocumentResult> RejectUploadAsync(
+        Guid id,
+        string reason,
+        CancellationToken cancellationToken = default);
+
     // Saying they have read it. Against the current version, so a reupload asks
     // again rather than inheriting an agreement to something else.
     Task<DocumentResult> AcknowledgeAsync(
@@ -108,6 +170,38 @@ public sealed record FolderDto
     // System and trash folders are renameable but never deletable. Served rather
     // than inferred, so the client does not reimplement the rule and get it wrong.
     public required bool CanDelete { get; init; }
+
+    // The swatch the screen draws. Null for a company folder that has never been
+    // given one, which the client colours however it likes.
+    public string? Colour { get; init; }
+}
+
+public sealed record MyFolderRequest
+{
+    public required string Name { get; init; }
+
+    public string? Colour { get; init; }
+}
+
+public sealed record SelfUploadRequest
+{
+    public required string Name { get; init; }
+
+    // Already uploaded through the files module with purpose EmployeeDocument. The
+    // bytes have had their size and type checked there, and a document create should
+    // not also be a multipart body.
+    public required Guid FileId { get; init; }
+
+    public DocumentCategory Category { get; init; } = DocumentCategory.Other;
+
+    // A certificate or a licence that lapses. Carried so the expiry sweep picks it up
+    // once HR accepts it, which is the point of telling anybody about it.
+    public DateOnly? ExpiryDate { get; init; }
+
+    public string? Description { get; init; }
+
+    // One of their own drawers, or null for the top of their list.
+    public Guid? FolderId { get; init; }
 }
 
 public sealed record DocumentVersionDto
@@ -176,6 +270,28 @@ public sealed record DocumentDto
     // Whether the caller has agreed to the current version. Null when the document
     // asks for no acknowledgement, which is a different thing from "not yet".
     public bool? AcknowledgedByMe { get; init; }
+
+    // Set when an employee uploaded this themselves. Null for anything HR filed, which
+    // is how the screen tells "your certificate" from "the staff handbook".
+    public Guid? UploadedByEmployeeId { get; init; }
+
+    public string? UploadedByName { get; init; }
+
+    // Where a self-service upload has got to, and why if it was refused. Null for
+    // anything HR filed — a document the company put there was never waiting on a
+    // decision, and a status of "accepted" would imply somebody made one.
+    public DocumentReviewStatus? ReviewStatus { get; init; }
+
+    public string? ReviewNote { get; init; }
+
+    // Whether the caller may move, bin or re-file this one themselves.
+    //
+    // Served rather than inferred, because the rule is not obvious from the row: the
+    // self-service list carries both what HR assigned and what the employee uploaded,
+    // and only the second is theirs to touch. A client working it out from
+    // uploadedByEmployeeId would get it right today and wrong the first time the rule
+    // gained a condition.
+    public required bool IsMine { get; init; }
 
     public required DateTimeOffset CreatedAt { get; init; }
 }
@@ -316,6 +432,27 @@ public enum DocumentOutcome
 
     // Shared with somebody who already has it. Change the permission instead.
     AlreadyShared,
+
+    // The signed-in account has no employee record, so it has no drawer of its own.
+    // The owner is permanently in this state.
+    NoEmployeeRecord,
+
+    // Somebody else's. Covers both a document HR assigned — which is theirs to read
+    // and not to bin — and a folder belonging to another employee. The same answer to
+    // each, because telling them apart would say whose it is.
+    NotYours,
+
+    // Already accepted or refused. A second decision would record two people ruling
+    // on one upload.
+    AlreadyReviewed,
+
+    // A decision asked for on something that was never a self-service upload. HR
+    // filing a document is not a request for permission.
+    NotAwaitingReview,
+
+    // A rejection with nothing said. "Your document was rejected" and no reason sends
+    // somebody to HR to ask.
+    ReasonRequired,
 
     NotAllowed,
 }

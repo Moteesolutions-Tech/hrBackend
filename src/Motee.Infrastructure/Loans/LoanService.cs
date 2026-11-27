@@ -256,6 +256,11 @@ internal sealed class LoanService(
                 SubjectType = SubjectType,
                 SubjectId = loan.Id,
                 SubjectEmployeeId = borrowerId,
+
+                // The reference names it the way every conversation about it will; the
+                // amount and the purpose are what the decision turns on.
+                Title = $"Loan {loan.Reference}",
+                Summary = $"{loan.Currency} {loan.Amount:N2} · {loan.Purpose}",
                 FileIds = request.FileIds,
             },
             cancellationToken);

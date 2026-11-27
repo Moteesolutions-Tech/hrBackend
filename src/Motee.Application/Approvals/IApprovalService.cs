@@ -52,6 +52,23 @@ public interface IApprovalService
         StartApprovalRequest request,
         CancellationToken cancellationToken = default);
 
+    // The request types somebody may raise from the intake form, with the fields each
+    // one asks for.
+    //
+    // Only types with a chain configured and no module behind them. A type with no
+    // chain has nobody to send the request to; a module-driven type has its own form,
+    // and raising one here would create an approval with no record behind it.
+    Task<IReadOnlyList<RaisableTypeDto>> DocumentTypesAsync(
+        CancellationToken cancellationToken = default);
+
+    // Raising a request directly, with no module creating a record first. For these the
+    // approval is the record: the title, the fields and the decision are the whole
+    // thing, which is why the six document types nothing else starts are exactly the
+    // ones this serves.
+    Task<ApprovalResult> RaiseAsync(
+        RaiseApprovalRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<ApprovalDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     // Everything running against one record, so a module can show "this onboarding is
@@ -91,10 +108,25 @@ public interface IApprovalService
         PagedQuery query,
         CancellationToken cancellationToken = default);
 
+    // signatureFileId is optional and only meaningful on an approval: a chain may ask
+    // the reviewer to sign. Refusing is not signed, so it carries none.
     Task<ApprovalResult> DecideAsync(
         Guid id,
         ApprovalStepStatus decision,
         string? note = null,
+        Guid? signatureFileId = null,
+        CancellationToken cancellationToken = default);
+
+    // A note without a decision — an approver asking for a receipt, a submitter
+    // answering. Lands in the same history as the decisions, so the exchange reads as
+    // one sequence rather than two lists interleaved by timestamp.
+    //
+    // Open to anybody party to the chain: the person who raised it and anybody a step
+    // resolved to. Not behind the module permission, because an approver need not hold
+    // it to have been asked to decide — the same reasoning as DecideAsync.
+    Task<ApprovalResult> CommentAsync(
+        Guid id,
+        string message,
         CancellationToken cancellationToken = default);
 
     Task<ApprovalResult> ResubmitAsync(Guid id, CancellationToken cancellationToken = default);
@@ -220,6 +252,48 @@ public sealed record ApprovalQuery : PagedQuery
     public DateOnly? To { get; init; }
 }
 
+public sealed record RaisableTypeDto
+{
+    public required string Key { get; init; }
+
+    // Humanised from the key — "Asset request" — so the form has something to show
+    // without holding its own vocabulary. A tenant's own category reads from its own
+    // words rather than a lookup that would not have it.
+    public required string Label { get; init; }
+
+    // What this type asks for beyond a title and a reason. Empty is a valid answer: a
+    // generic request is a title, a reason and an attachment.
+    public required IReadOnlyList<IntakeField> Fields { get; init; }
+
+    // Whether the chain takes evidence, and whether it insists on it. Sent so the form
+    // can say what is expected before somebody submits rather than after it is refused.
+    public required AttachmentRules Attachments { get; init; }
+}
+
+public sealed record RaiseApprovalRequest
+{
+    public required string DocumentType { get; init; }
+
+    // What the request is, in the requester's own words. Required here, unlike on a
+    // module-driven chain where the module supplies it: an intake request with no title
+    // is a row in the register saying nothing.
+    public required string Title { get; init; }
+
+    public string? Summary { get; init; }
+
+    // The fields the type asked for. Checked against the schema, so a key nobody asked
+    // for is refused rather than stored — the map is rendered back to the approver, and
+    // anything accepted here appears on the request as though it had been requested.
+    public IReadOnlyDictionary<string, string?> Fields { get; init; } =
+        new Dictionary<string, string?>();
+
+    // Files already uploaded with purpose ApprovalAttachment.
+    public IReadOnlyList<Guid> FileIds { get; init; } = [];
+
+    // Omitted means the default chain for this type.
+    public Guid? TemplateId { get; init; }
+}
+
 public sealed record StartApprovalRequest
 {
     public required string DocumentType { get; init; }
@@ -233,6 +307,22 @@ public sealed record StartApprovalRequest
     // Who the chain is about. The positional resolvers need it — the line manager of
     // whom, the head of which department.
     public Guid? SubjectEmployeeId { get; init; }
+
+    // What the request is, in the module's own words: "Annual leave", "3–7 Mar · 5
+    // days". Both optional, and both supplied by the module rather than worked out
+    // here, because the engine stores a subject type and a subject id and never
+    // interprets them — it does not know what an onboarding record is, and making it
+    // know would mean editing the engine for every new module.
+    //
+    // Carried opaquely: stored, handed back, never parsed.
+    public string? Title { get; init; }
+
+    public string? Summary { get; init; }
+
+    // The intake form's field map, for a request raised with no module behind it.
+    // Empty for every module-driven chain, which keeps its detail in its own table.
+    public IReadOnlyDictionary<string, string?> IntakeValues { get; init; } =
+        new Dictionary<string, string?>();
 
     // Omitted means the default template for this document type.
     public Guid? TemplateId { get; init; }
@@ -338,6 +428,22 @@ public sealed record ApprovalDto
 
     public Guid? SubjectEmployeeId { get; init; }
 
+    // What the request is, from the module that raised it. Null where that module does
+    // not supply them — the client falls back to humanising the document type, and a
+    // stand-in invented here would be a second vocabulary competing with theirs.
+    public string? Title { get; init; }
+
+    public string? Summary { get; init; }
+
+    // The fields filled in on the intake form, for a request raised that way. Empty for
+    // every module-driven chain, which keeps its detail in its own table.
+    public required IReadOnlyDictionary<string, string?> Fields { get; init; }
+
+    // The schema those fields were filled in against, so the detail page can label and
+    // order them without holding its own copy — and so a field map written last year
+    // still renders under the labels it was collected with.
+    public required IReadOnlyList<IntakeField> FieldSchema { get; init; }
+
     // Who raised it. The account, the employee behind that account where there is one,
     // and the name — a register with a row per submission and no column for the person
     // who made it is the one thing the screen cannot work without.
@@ -409,6 +515,12 @@ public sealed record ApprovalStepDto
     public DateTimeOffset? DecidedAt { get; init; }
 
     public string? Note { get; init; }
+
+    // The reviewer's signature, where the chain asked for one. Signed on read like
+    // every other file link here, so there is nothing stored that can go stale.
+    public Guid? SignatureFileId { get; init; }
+
+    public string? SignatureUrl { get; init; }
 
     // Why nobody was asked. Written in words, so a skipped step explains itself.
     public string? SkippedReason { get; init; }

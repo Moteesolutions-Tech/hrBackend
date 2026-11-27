@@ -166,6 +166,14 @@ internal sealed class ExpenseClaimService(
                 SubjectType = SubjectType,
                 SubjectId = claim.Id,
                 SubjectEmployeeId = claim.EmployeeId,
+
+                // The claim's own title — "Client dinner", "Taxi to site" — rather than
+                // a label repeating the document type the register already shows. The
+                // summary carries the reference and the amount, which is what the
+                // approver is actually deciding on.
+                Title = claim.Title,
+                Summary = $"{claim.Reference} · {claim.Currency} {claim.Amount:N2} · "
+                    + claim.Merchant,
             },
             cancellationToken);
 

@@ -125,6 +125,55 @@ public class LeaveRequestTests(PostgresFixture fixture)
             Reason = "Holiday",
         });
 
+    // The approval carries what the request is, in leave's own words.
+    //
+    // The engine cannot work this out: it stores a subject type and an id and never
+    // interprets them. Without this the submissions register has a row per request and
+    // no column saying what any of them is for — which is what HR scans the list to
+    // find. The leave type's name rather than "Leave request", because compassionate
+    // leave and annual leave are decided differently.
+    [SkippableFact]
+    public async Task TheApprovalSaysWhichLeaveAndWhen()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync(annualDays: 10m);
+
+        await ChainAsync(provider);
+
+        DateOnly monday = NextMonday(SoonEnough());
+
+        LeaveRequestResult booked = await BookAsync(provider, monday, monday.AddDays(4));
+
+        Assert.True(booked.Succeeded, booked.Outcome.ToString());
+
+        ApprovalDto approval = booked.Request!.Approval!;
+
+        Assert.Equal("Annual Leave", approval.Title);
+
+        // The dates and the cost, which is what the approver decides on. Snapshotted,
+        // so a later amendment cannot rewrite what they were shown.
+        Assert.Equal(
+            $"{monday:d MMM}–{monday.AddDays(4):d MMM} · 5 days",
+            approval.Summary);
+    }
+
+    [SkippableFact]
+    public async Task AHalfDayApprovalSaysSo()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync(annualDays: 10m);
+
+        await ChainAsync(provider);
+
+        DateOnly monday = NextMonday(SoonEnough());
+
+        LeaveRequestResult booked = await BookAsync(provider, monday, monday, halfDay: true);
+
+        Assert.True(booked.Succeeded, booked.Outcome.ToString());
+
+        Assert.Equal($"{monday:d MMM} · half day", booked.Request!.Approval!.Summary);
+    }
+
     // No leave workflow is configured by default, so this also pins the fallback: a
     // company that has not set one up is not a company where leave is impossible.
     [SkippableFact]

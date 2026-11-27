@@ -46,6 +46,40 @@ internal sealed class ExportService(
         return ToDto(job);
     }
 
+    // Prefixed so a report dataset called "employees" cannot be mistaken for the
+    // employee export, which has its own filters shape and its own CSV writer. The
+    // runner branches on this.
+    public const string ReportKindPrefix = "report:";
+
+    public async Task<ExportJobDto> RequestReportExportAsync(
+        Motee.Application.Reports.ReportExportFilters filters,
+        CancellationToken cancellationToken = default)
+    {
+        DateTimeOffset now = timeProvider.GetUtcNow();
+
+        ExportJob job = new()
+        {
+            Id = Guid.NewGuid(),
+            Kind = ReportKindPrefix + filters.Dataset,
+            RequestedByUserId = Guid.TryParse(requestContext.UserId, out Guid userId)
+                ? userId
+                : null,
+            RequestedByEmail = requestContext.UserEmail ?? string.Empty,
+            Filters = JsonSerializer.Serialize(filters, SerializerOptions),
+            Status = ExportStatus.Queued,
+            CreatedAt = now,
+        };
+
+        dbContext.ExportJobs.Add(job);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Enqueued after the row is committed, or the worker could pick up an id that
+        // is not there yet.
+        queue.Enqueue(job.Id);
+
+        return ToDto(job);
+    }
+
     public async Task<ExportJobDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         ExportJob? job = await MineAsync(id, cancellationToken);

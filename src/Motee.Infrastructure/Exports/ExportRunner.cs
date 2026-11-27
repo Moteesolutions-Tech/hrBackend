@@ -7,6 +7,7 @@ using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Exports;
 using Motee.Application.Notifications;
+using Motee.Application.Reports;
 using Motee.Application.Tenancy;
 using Motee.Domain.Exports;
 using Motee.Infrastructure.Persistence;
@@ -18,6 +19,7 @@ namespace Motee.Infrastructure.Exports;
 internal sealed class ExportRunner(
     MoteeDbContext dbContext,
     IEmployeeService employees,
+    Reports.ReportRowProviders reports,
     IFileStorage storage,
     IEmailDispatcher email,
     TimeProvider timeProvider,
@@ -49,13 +51,10 @@ internal sealed class ExportRunner(
             job.Status = ExportStatus.Running;
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            EmployeeExportFilters filters =
-                JsonSerializer.Deserialize<EmployeeExportFilters>(job.Filters, SerializerOptions)!;
-
-            (string csv, int rows) = await BuildCsvAsync(filters, cancellationToken);
+            (string csv, int rows, string subject) = await BuildAsync(job, cancellationToken);
 
             DateTimeOffset now = timeProvider.GetUtcNow();
-            string fileName = $"employees-{now:yyyy-MM-dd-HHmm}.csv";
+            string fileName = $"{subject}-{now:yyyy-MM-dd-HHmm}.csv";
             string key = $"exports/{job.TenantId:N}/{job.Id:N}/{fileName}";
 
             await using (MemoryStream content = new(Encoding.UTF8.GetBytes(csv)))
@@ -90,6 +89,83 @@ internal sealed class ExportRunner(
             // Rethrown so Hangfire records the failure and applies its retry policy.
             throw;
         }
+    }
+
+    // Which kind of export this is. The kind was decided when the job was queued and
+    // the two filter shapes are not interchangeable: deserialising a report job as an
+    // employee one would leave Scope at its default rather than failing, and an export
+    // with the wrong scope is the one failure that must not be quiet.
+    private async Task<(string Csv, int Rows, string Subject)> BuildAsync(
+        ExportJob job,
+        CancellationToken cancellationToken) =>
+        job.Kind.StartsWith(ExportService.ReportKindPrefix, StringComparison.Ordinal)
+            ? await BuildReportAsync(job, cancellationToken)
+            : await BuildEmployeesAsync(job, cancellationToken);
+
+    private async Task<(string Csv, int Rows, string Subject)> BuildEmployeesAsync(
+        ExportJob job,
+        CancellationToken cancellationToken)
+    {
+        EmployeeExportFilters filters =
+            JsonSerializer.Deserialize<EmployeeExportFilters>(job.Filters, SerializerOptions)!;
+
+        (string csv, int rows) = await BuildCsvAsync(filters, cancellationToken);
+
+        return (csv, rows, ExportService.EmployeesKind);
+    }
+
+    // One dataset at a time through the same provider the on-screen report reads, so a
+    // spreadsheet and the grid it was exported from cannot disagree.
+    //
+    // The scope comes off the job rather than from a permission check: there is no user
+    // here to check. See ReportExportFilters.
+    private async Task<(string Csv, int Rows, string Subject)> BuildReportAsync(
+        ExportJob job,
+        CancellationToken cancellationToken)
+    {
+        ReportExportFilters filters =
+            JsonSerializer.Deserialize<ReportExportFilters>(job.Filters, SerializerOptions)!;
+
+        // Thrown rather than written empty. A dataset can only vanish between queueing
+        // and running if it was removed from the catalogue in a deploy, and a file of
+        // nothing but a header would look like an answer.
+        ReportDataset dataset = ReportCatalogue.Find(filters.Dataset)
+            ?? throw new InvalidOperationException(
+                $"Report dataset '{filters.Dataset}' no longer exists.");
+
+        IReadOnlyList<ReportColumn> columns = ReportCatalogue.Resolve(dataset, filters.Columns);
+
+        StringBuilder csv = new();
+        csv.Append(ReportCsvWriter.Header(columns));
+
+        int page = 1;
+        int rows = 0;
+
+        while (true)
+        {
+            PagedResult<IReadOnlyDictionary<string, string?>> result = await reports.RowsAsync(
+                dataset,
+                filters.Scope,
+                filters.ViewerEmployeeId,
+                filters.Filters,
+                new PagedQuery { Page = page, PageSize = PageSize },
+                cancellationToken);
+
+            foreach (IReadOnlyDictionary<string, string?> row in result.Items)
+            {
+                csv.Append(ReportCsvWriter.Row(row, columns));
+                rows++;
+            }
+
+            if (!result.HasNextPage)
+            {
+                break;
+            }
+
+            page++;
+        }
+
+        return (csv.ToString(), rows, dataset.Key);
     }
 
     private async Task<(string Csv, int Rows)> BuildCsvAsync(
