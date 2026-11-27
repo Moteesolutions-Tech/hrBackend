@@ -39,6 +39,16 @@ public enum FilePurpose
     // separate means that exception is one purpose wide.
     CompanyVerificationDocument,
 
+    // Evidence on a profile change request: a deed poll for a name, a bill for an
+    // address, a marriage certificate.
+    //
+    // Its own purpose rather than an employee document, because of what happens to it.
+    // An employee document is filed and kept; this is attached to one decision, read by
+    // whoever reviews it, and belongs with the request rather than on the record — the
+    // name on a deed poll is not a document the company needs on file for ever because
+    // somebody asked for a spelling to be fixed.
+    ProfileChangeEvidence,
+
     Export,
 }
 
@@ -116,6 +126,15 @@ public static class FilePolicy
         // two pages — and a tighter ceiling than the rest of the filing is
         // right for the one purpose readable from outside the company.
         [FilePurpose.CompanyVerificationDocument] = new()
+        {
+            MaxBytes = 10 * Mb,
+            ContentTypes = ["application/pdf", .. Images],
+        },
+
+        // One or two pages, scanned or photographed: a deed poll, a bill, a certificate.
+        // The same ceiling as a verification document, for the same reason — it is a
+        // page of evidence, not a filing cabinet.
+        [FilePurpose.ProfileChangeEvidence] = new()
         {
             MaxBytes = 10 * Mb,
             ContentTypes = ["application/pdf", .. Images],
