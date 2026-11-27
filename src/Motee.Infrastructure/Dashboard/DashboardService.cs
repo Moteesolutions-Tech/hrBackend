@@ -2,12 +2,16 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Attendance;
 using Motee.Application.Dashboard;
 using Motee.Application.Tenancy;
+using Motee.Domain.Approvals;
 using Motee.Domain.Attendance;
 using Motee.Domain.Common;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Offboarding;
+using Motee.Domain.Onboarding;
 using Motee.Domain.Organisation;
+using Motee.Domain.Recruitment;
+using Motee.Domain.Workforce;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
 
@@ -42,14 +46,23 @@ internal sealed class DashboardService(
 
     private const int WeeklySeriesWeeks = 3;
 
-    // What the dashboard treats as in post. Onboarded and Pending are people who
-    // have not started, and counting them as headcount would inflate every
-    // figure on the screen from the day an offer is accepted.
-    private static readonly EmployeeStatus[] InPost =
+    // Who the dashboard treats as in post.
+    //
+    // EmployeeLifecycle.InPost, not a copy. This had its own list, which left
+    // Offboarding out — so the front page reported a smaller workforce than
+    // learning, benefits, surveys, checklists, shifts and community, all of
+    // which use the shared set. Somebody serving notice is still employed: on
+    // payroll, accruing leave, holding a laptop. The duplicate was exactly the
+    // drift EmployeeLifecycle.InPost's own comment warns about, and nothing
+    // caught it because no test seeded a leaver mid-notice.
+    private static EmployeeStatus[] InPost => EmployeeLifecycle.InPost;
+
+    // Accepted but not yet at their desk. The complement of InPost at the front
+    // end of the lifecycle, which the pre-employment stage is entirely about.
+    private static readonly EmployeeStatus[] NotYetStarted =
     [
-        EmployeeStatus.Active,
-        EmployeeStatus.Probation,
-        EmployeeStatus.OnLeave,
+        EmployeeStatus.Pending,
+        EmployeeStatus.Onboarded,
     ];
 
     // Everything the people figures need, which is a long way short of an
@@ -530,6 +543,165 @@ internal sealed class DashboardService(
     }
 
     // ── the company's calendar ──────────────────────────────────────────────
+
+    // ── lifecycle ───────────────────────────────────────────────────────────
+
+    public async Task<LifecycleDashboardDto> LifecycleAsync(
+        CancellationToken cancellationToken = default)
+    {
+        DateOnly today = await TodayAsync(cancellationToken);
+
+        // Counted in the database, one query per stage, rather than loading five
+        // modules' rows to length them here. Each is a COUNT over an indexed
+        // status column; the whole page is cheaper than the single employee
+        // query the people tab already runs.
+        // A workforce request has no status column — WorkforceRequests.Derive
+        // works it out from the approval chain, so a request cannot read
+        // "pending" after its chain was approved. So the rows and their chains
+        // are both read and the domain rule applied, rather than a column that
+        // does not exist being counted.
+        //
+        // Whole rows, unlike the employee query above: a tenant has a handful
+        // of open workforce requests, and Derive takes the entity.
+        List<WorkforceRequest> requests = await dbContext.WorkforceRequests
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        Dictionary<Guid, ApprovalStatus> chains = await ChainStatusesAsync(
+            requests.Select(request => request.ApprovalInstanceId), cancellationToken);
+
+        // Converted is the end of this stage, not a member of it: the request
+        // became a requisition and is counted there. Counting both would make
+        // the funnel wider than the work going through it. Cancelled and
+        // rejected have left the funnel altogether.
+        int planning = requests.Count(request =>
+            WorkforceRequests.Derive(request, Chain(chains, request.ApprovalInstanceId))
+            is not (WorkforceRequestStatus.Converted
+                or WorkforceRequestStatus.Cancelled
+                or WorkforceRequestStatus.Rejected));
+
+        // Requisitions are two stages. Before they are out they are a request
+        // being approved; once recruiting they are the advert.
+        List<RequisitionStatus> requisitionStatuses = await dbContext.JobRequisitions
+            .AsNoTracking()
+            .Select(requisition => requisition.Status)
+            .ToListAsync(cancellationToken);
+
+        int requisitions = requisitionStatuses.Count(status =>
+            status is RequisitionStatus.Draft
+                or RequisitionStatus.PendingApproval
+                or RequisitionStatus.Approved);
+
+        // Through the domain's own rule rather than a list repeated here, or the
+        // dashboard and the recruitment board would disagree about what "open"
+        // means the first time one of them changed.
+        int attracting = requisitionStatuses.Count(Requisitions.IsRecruiting);
+
+        // Still in play, and not yet hired — a hired candidate has left
+        // selection and belongs to pre-employment.
+        int selecting = await dbContext.Candidates
+            .AsNoTracking()
+            .CountAsync(
+                candidate => candidate.Status == CandidateStatus.Active
+                    && candidate.Stage != CandidateStage.Hired,
+                cancellationToken);
+
+        // Between "we want them" and "they have started", which is two
+        // populations: a hired candidate nobody has turned into an employee
+        // yet, and a joiner whose onboarding has not begun.
+        int awaitingConversion = await dbContext.Candidates
+            .AsNoTracking()
+            .CountAsync(
+                candidate => candidate.Status == CandidateStatus.Active
+                    && candidate.Stage == CandidateStage.Hired
+                    && candidate.CreatedEmployeeId == null,
+                cancellationToken);
+
+        // Pre-boarding, but only for somebody who has not started.
+        //
+        // The employee-status join is load-bearing. Every new hire gets an
+        // onboarding record at PreBoarding whichever route they came in by —
+        // deliberately, so nobody is invisible to the pipeline — and that
+        // includes staff imported into a new tenant who have worked there for
+        // years. Counting the stage alone would tell a company that migrated
+        // 200 people it has 200 in pre-employment.
+        int preBoarding = await dbContext.OnboardingRecords
+            .AsNoTracking()
+            .CountAsync(
+                record => record.Stage == OnboardingStage.PreBoarding
+                    && dbContext.Employees.Any(employee =>
+                        employee.Id == record.EmployeeId
+                        && NotYetStarted.Contains(employee.Status)),
+                cancellationToken);
+
+        // Underway but not finished. Pre-boarding has not started and is
+        // counted by the stage before; completed is no longer onboarding.
+        int onboarding = await dbContext.OnboardingRecords
+            .AsNoTracking()
+            .CountAsync(
+                record => record.Stage != OnboardingStage.PreBoarding
+                    && record.Stage != OnboardingStage.Completed,
+                cancellationToken);
+
+        int inPost = await dbContext.Employees
+            .AsNoTracking()
+            .CountAsync(employee => InPost.Contains(employee.Status), cancellationToken);
+
+        // Through OffboardingLifecycle.IsOpen, the same rule the offboarding
+        // board uses. Evaluated in memory because it is a domain method and not
+        // translatable; a tenant has a handful of leavers in flight at once.
+        List<OffboardingStatus> leaving = await dbContext.OffboardingRecords
+            .AsNoTracking()
+            .Select(record => record.Status)
+            .ToListAsync(cancellationToken);
+
+        return new LifecycleDashboardDto
+        {
+            AsOf = today,
+
+            // In model order, and every stage present even at zero: the screen
+            // draws eight cards regardless, and a missing one would read as a
+            // broken page rather than a quiet month.
+            Stages =
+            [
+                Stage("workforce-planning", planning),
+                Stage("requisition", requisitions),
+                Stage("attract", attracting),
+                Stage("select", selecting),
+                Stage("pre-employment", awaitingConversion + preBoarding),
+                Stage("onboard", onboarding),
+                Stage("develop-perform-retain", inPost),
+                Stage("offboard", leaving.Count(OffboardingLifecycle.IsOpen)),
+            ],
+        };
+    }
+
+    private static LifecycleStageDto Stage(string key, int count) =>
+        new() { Key = key, Count = count };
+
+    private async Task<Dictionary<Guid, ApprovalStatus>> ChainStatusesAsync(
+        IEnumerable<Guid?> instanceIds,
+        CancellationToken cancellationToken)
+    {
+        List<Guid> ids = [.. instanceIds.OfType<Guid>().Distinct()];
+
+        return ids.Count == 0
+            ? []
+            : await dbContext.ApprovalInstances
+                .AsNoTracking()
+                .Where(instance => ids.Contains(instance.Id))
+                .ToDictionaryAsync(
+                    instance => instance.Id, instance => instance.Status, cancellationToken);
+    }
+
+    // Null means no chain, which Derive reads as a draft — distinct from a
+    // chain that exists and has not started.
+    private static ApprovalStatus? Chain(
+        IReadOnlyDictionary<Guid, ApprovalStatus> chains,
+        Guid? instanceId) =>
+        instanceId is Guid id && chains.TryGetValue(id, out ApprovalStatus status)
+            ? status
+            : null;
 
     private async Task<DateOnly> TodayAsync(CancellationToken cancellationToken) =>
         TenantClock.DayOf(timeProvider.GetUtcNow(), await ZoneAsync(cancellationToken));

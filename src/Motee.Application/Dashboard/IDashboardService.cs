@@ -18,7 +18,44 @@ public interface IDashboardService
     Task<PeopleDashboardDto> PeopleAsync(CancellationToken cancellationToken = default);
 
     Task<AttendanceDashboardDto> AttendanceAsync(CancellationToken cancellationToken = default);
+
+    // The lifecycle overview: how many sit at each stage from workforce planning
+    // to offboarding.
+    //
+    // Spans five modules, which is why it is one read rather than five. The
+    // screen's eight stage cards were each reading a browser-side store, so the
+    // page showed whatever that session happened to have loaded — and two stages
+    // had no source at all.
+    Task<LifecycleDashboardDto> LifecycleAsync(CancellationToken cancellationToken = default);
 }
+
+// ── lifecycle ───────────────────────────────────────────────────────────────
+
+public sealed record LifecycleDashboardDto
+{
+    public required DateOnly AsOf { get; init; }
+
+    public required IReadOnlyList<LifecycleStageDto> Stages { get; init; }
+}
+
+public sealed record LifecycleStageDto
+{
+    // The screen's own stage id — "workforce-planning", "attract", "offboard".
+    // Matching their keys rather than inventing ours means the card lookup is a
+    // dictionary hit and nobody maintains a translation table.
+    public required string Key { get; init; }
+
+    public required int Count { get; init; }
+}
+
+// No label. The screen already words each card — "3 new starters onboarding",
+// "2 leaving" — with its own pluralisation, and sending a second copy from here
+// would mean two places to change the wording and one of them losing.
+//
+// No names either, though the request asked for "the newest few people" per
+// stage. The cards display an integer, and the names behind these counts are
+// candidates, joiners and leavers across five modules: a lot of personal data
+// shipped to render a number. Worth revisiting if a card ever grows a list.
 
 // ── people ──────────────────────────────────────────────────────────────────
 

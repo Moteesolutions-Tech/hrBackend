@@ -34,4 +34,21 @@ public class DashboardController(IDashboardService dashboard) : ApiControllerBas
     [RequiresPermission("time-payroll.attendance", PermissionAction.View)]
     public async Task<IActionResult> Attendance(CancellationToken cancellationToken) =>
         Ok(await dashboard.AttendanceAsync(cancellationToken));
+
+    // The lifecycle overview. Spans workforce planning, recruitment,
+    // onboarding, the employee roster and offboarding.
+    //
+    // One permission rather than one per stage, which breaks the rule above and
+    // is worth saying why: every figure here is a count and nothing else. No
+    // names, no records, no rows — an integer saying how many requisitions are
+    // open is not recruitment data in the way a candidate list is. Behind the
+    // employee module because the page is the employee lifecycle, and anybody
+    // who cannot open the employee list has no business reading the funnel.
+    //
+    // If a card ever grows a list of people, this needs splitting.
+    [HttpGet("lifecycle")]
+    [ProducesResponseType<LifecycleDashboardDto>(StatusCodes.Status200OK)]
+    [RequiresPermission("organization.employees", PermissionAction.View)]
+    public async Task<IActionResult> Lifecycle(CancellationToken cancellationToken) =>
+        Ok(await dashboard.LifecycleAsync(cancellationToken));
 }
