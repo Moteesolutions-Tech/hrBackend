@@ -28,14 +28,18 @@ internal sealed class PermissionPolicyProvider(IOptions<AuthorizationOptions> op
             return Task.FromResult<AuthorizationPolicy?>(platform);
         }
 
-        if (!RequiresPermissionAttribute.TryParse(policyName, out string module, out PermissionAction action))
+        if (!RequiresPermissionAttribute.TryParse(
+                policyName,
+                out string module,
+                out PermissionAction action,
+                out DataScopeKind minimumScope))
         {
             return _fallback.GetPolicyAsync(policyName);
         }
 
         AuthorizationPolicy policy = new AuthorizationPolicyBuilder()
             .RequireAuthenticatedUser()
-            .AddRequirements(new PermissionRequirement(module, action))
+            .AddRequirements(new PermissionRequirement(module, action, minimumScope))
             .Build();
 
         return Task.FromResult<AuthorizationPolicy?>(policy);

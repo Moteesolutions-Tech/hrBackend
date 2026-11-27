@@ -40,9 +40,12 @@ public class ContractsController(IContractService contracts) : ApiControllerBase
 
     // ── issuing and managing ────────────────────────────────────────────────
 
+    // The company's contract register, which carries pay. Self scope is not enough to
+    // read it: every signed-in employee holds View on this module through
+    // SelfServicePolicy, and their own contract is reached through /mine.
     [HttpGet]
     [ProducesResponseType<PagedResult<ContractDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] ContractQuery query,
         CancellationToken cancellationToken) =>

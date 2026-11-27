@@ -86,7 +86,7 @@ public class PerformanceFeedbackController(
     // Everything written about one person, for whoever is running their review.
     [HttpGet]
     [ProducesResponseType<PagedResult<PerformanceFeedbackDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] FeedbackQuery query,
         CancellationToken cancellationToken) =>

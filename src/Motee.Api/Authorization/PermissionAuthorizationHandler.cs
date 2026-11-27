@@ -71,6 +71,20 @@ internal sealed class PermissionAuthorizationHandler(
             reach = await scopeResolver.ResolveAsync(reach, HolderEmployeeId(context));
         }
 
+        // Asked after the self-relative resolution, because that is the first point the
+        // real breadth is known: "their own department" arrives as OwnDepartment and
+        // becomes Department here.
+        //
+        // An endpoint that reads across the organisation says so, and this is what
+        // separates it from the same module's self-service route. Without it, Self scope
+        // satisfies the check — and SelfServicePolicy gives Self on these modules to
+        // every signed-in employee, so the company's whole contract register, leave
+        // register and attendance log were readable by anybody who could log in.
+        if (reach.Kind < requirement.MinimumScope)
+        {
+            return;
+        }
+
         if (httpContextAccessor.HttpContext is HttpContext http)
         {
             http.Items[ScopeItemKey] = reach.Breadth;

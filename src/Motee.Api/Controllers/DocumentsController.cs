@@ -227,9 +227,11 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
 
     // ── documents ───────────────────────────────────────────────────────────
 
+    // The HR document register. An employee's own documents and drawer are reached
+    // through the /mine routes, so Self scope has no business here.
     [HttpGet]
     [ProducesResponseType<PagedResult<DocumentDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] DocumentQuery query,
         CancellationToken cancellationToken) =>

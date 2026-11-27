@@ -17,9 +17,12 @@ public class LeaveController(
 {
     private const string Module = "time-payroll.leave";
 
+    // Everybody's leave, reasons included. Self scope is not enough: the floor grants
+    // this module to every employee so that /mine below works, and a leave reason is
+    // often medical.
     [HttpGet]
     [ProducesResponseType<PagedResult<LeaveRequestDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] LeaveRequestQuery query,
         CancellationToken cancellationToken) =>

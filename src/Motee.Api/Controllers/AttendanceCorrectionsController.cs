@@ -47,7 +47,7 @@ public class AttendanceCorrectionsController(
 
     [HttpGet]
     [ProducesResponseType<PagedResult<AttendanceCorrectionDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] CorrectionQuery query,
         CancellationToken cancellationToken) =>
