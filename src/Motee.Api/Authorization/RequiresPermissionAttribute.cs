@@ -11,21 +11,56 @@ public sealed class RequiresPermissionAttribute : AuthorizeAttribute
 {
     public const string PolicyPrefix = "motee.permission:";
 
+    private DataScopeKind _minimumScope = DataScopeKind.None;
+
     public RequiresPermissionAttribute(string module, PermissionAction action)
     {
         Module = module;
         Action = action;
-        Policy = $"{PolicyPrefix}{module}:{action}";
+        Policy = Name(module, action, DataScopeKind.None);
     }
 
     public string Module { get; }
 
     public PermissionAction Action { get; }
 
-    public static bool TryParse(string policyName, out string module, out PermissionAction action)
+    // How much breadth the endpoint needs, beyond holding the permission at all.
+    //
+    // This exists because holding a module is not the same as being allowed to read
+    // every record in it, and the gap between those two is where an entire class of
+    // leak lived. SelfServicePolicy grants View at Self scope on the person-centric
+    // modules to every signed-in employee, with no access level required — that is what
+    // makes self-service work. The handler succeeds on any scope above None, so a Self
+    // grant satisfies a bare [RequiresPermission] and the endpoint is then expected to
+    // narrow its own query. An organisation-wide list that forgets to narrow hands the
+    // whole company to anybody who can log in.
+    //
+    // So the organisation-wide lists state the breadth they need. DataScopeKind is
+    // ordered None < Self < DirectReports < ... < All, and the requirement is "at least
+    // this", so MinimumScope = DirectReports means "more than just your own records" —
+    // each of those modules has its own /mine route for that.
+    //
+    // Set as a named argument, which runs after the constructor, so the policy name is
+    // rewritten to carry it.
+    public DataScopeKind MinimumScope
+    {
+        get => _minimumScope;
+        set
+        {
+            _minimumScope = value;
+            Policy = Name(Module, Action, value);
+        }
+    }
+
+    public static bool TryParse(
+        string policyName,
+        out string module,
+        out PermissionAction action,
+        out DataScopeKind minimumScope)
     {
         module = string.Empty;
         action = default;
+        minimumScope = DataScopeKind.None;
 
         if (!policyName.StartsWith(PolicyPrefix, StringComparison.Ordinal))
         {
@@ -34,7 +69,9 @@ public sealed class RequiresPermissionAttribute : AuthorizeAttribute
 
         string[] parts = policyName[PolicyPrefix.Length..].Split(':');
 
-        if (parts.Length != 2 || !Enum.TryParse(parts[1], ignoreCase: true, out action))
+        if (parts.Length != 3
+            || !Enum.TryParse(parts[1], ignoreCase: true, out action)
+            || !Enum.TryParse(parts[2], ignoreCase: true, out minimumScope))
         {
             return false;
         }
@@ -43,4 +80,7 @@ public sealed class RequiresPermissionAttribute : AuthorizeAttribute
 
         return !string.IsNullOrWhiteSpace(module);
     }
+
+    private static string Name(string module, PermissionAction action, DataScopeKind minimumScope) =>
+        $"{PolicyPrefix}{module}:{action}:{minimumScope}";
 }

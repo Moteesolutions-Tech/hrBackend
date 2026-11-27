@@ -81,7 +81,7 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     // one record, and a cancelled request with no next approver appeared in neither.
     [HttpGet]
     [ProducesResponseType<PagedResult<ApprovalDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] ApprovalQuery query,
         CancellationToken cancellationToken) =>

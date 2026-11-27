@@ -27,7 +27,7 @@ public class CertificationsController(ICertificationService certifications)
 
     [HttpGet]
     [ProducesResponseType<PagedResult<CertificationDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] CertificationQuery query,
         CancellationToken cancellationToken) =>

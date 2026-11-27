@@ -104,9 +104,11 @@ public class AttendanceController(IAttendanceService attendance) : ApiController
 
     // ── the company's day ───────────────────────────────────────────────────
 
+    // The company's day, not the caller's. Self scope reaches their own attendance
+    // through the clock routes and /mine, so this needs more than the floor grants.
     [HttpGet]
     [ProducesResponseType<PagedResult<AttendanceDayDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] AttendanceQuery query,
         CancellationToken cancellationToken) =>

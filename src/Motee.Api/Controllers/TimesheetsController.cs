@@ -50,7 +50,7 @@ public class TimesheetsController(ITimesheetService timesheets) : ApiControllerB
 
     [HttpGet]
     [ProducesResponseType<PagedResult<TimesheetDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] TimesheetQuery query,
         CancellationToken cancellationToken) =>

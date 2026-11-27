@@ -82,9 +82,11 @@ public class ExpenseClaimsController(IExpenseClaimService claims) : ApiControlle
 
     // ── reviewing and paying ────────────────────────────────────────────────
 
+    // Everybody's claims. The caller's own are the /mine route above, which is what the
+    // floor's Create and View grants are for.
     [HttpGet]
     [ProducesResponseType<PagedResult<ExpenseClaimDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> List(
         [FromQuery] ExpenseQuery query,
         CancellationToken cancellationToken) =>

@@ -15,33 +15,14 @@ using Motee.Infrastructure.Persistence;
 
 namespace Motee.Infrastructure.Reports;
 
-// Where a report's rows come from.
-//
-// Each dataset reads its own module's list service rather than a fresh query, so a
-// report and the screen it reports on cannot disagree — the same reason
-// /dashboard/mine delegates for its clock. That also means every narrowing those
-// services already do, including the caller's data scope, applies to the report for
-// free.
-//
-// The work here is the translation. A report filter arrives as a column key and a
-// string — "department" = "Engineering" — while each module's query is typed, wanting
-// a Guid for the department and an enum for the status. That mapping is
-// provider-specific and belongs beside the provider, not in the Application catalogue,
-// which only declares what exists.
-//
-// A value that does not translate is not silently dropped: the provider returns no rows
-// rather than every row. Asking for status "Purple" and getting the whole table back
-// would be the worst of the available answers.
+
 internal sealed class ReportRowProviders(
     MoteeDbContext dbContext,
     IEmployeeService employees,
     ILeaveRequestService leave,
     IAssetService assets)
 {
-    // asOf is passed in rather than read here, because the two callers establish it
-    // differently: a request knows the tenant from the signed-in user, while the export
-    // worker has to take it off the job row. Both mean the tenant's own today, which is
-    // what makes "age" and "tenure" answerable at all.
+
     public async Task<PagedResult<IReadOnlyDictionary<string, string?>>> RowsAsync(
         ReportDataset dataset,
         DataScope scope,
