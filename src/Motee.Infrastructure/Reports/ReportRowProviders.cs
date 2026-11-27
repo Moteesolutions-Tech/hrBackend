@@ -35,7 +35,8 @@ internal sealed class ReportRowProviders(
         {
             "employees" => await EmployeesAsync(
                 dataset, scope, viewerEmployeeId, filters, page, asOf, cancellationToken),
-            "leave" => await LeaveAsync(dataset, filters, page, cancellationToken),
+            "leave" => await LeaveAsync(
+                dataset, scope, viewerEmployeeId, filters, page, cancellationToken),
             "assets" => await AssetsAsync(
                 dataset, scope, viewerEmployeeId, filters, page, cancellationToken),
 
@@ -317,6 +318,8 @@ internal sealed class ReportRowProviders(
 
     private async Task<PagedResult<IReadOnlyDictionary<string, string?>>> LeaveAsync(
         ReportDataset dataset,
+        DataScope scope,
+        Guid? viewerEmployeeId,
         IReadOnlyDictionary<string, string?>? filters,
         PagedQuery page,
         CancellationToken cancellationToken)
@@ -361,6 +364,11 @@ internal sealed class ReportRowProviders(
                 Page = page.Page,
                 PageSize = page.PageSize,
             },
+
+            // The report's own scope, which this dataset was not passing before: the
+            // leave register took no viewer, so a department-scoped HR user running the
+            // Leave report got the whole company's absence and reasons with it.
+            Viewer.Of(scope, viewerEmployeeId),
             cancellationToken);
 
         // Already paged by the service, so the page is carried through rather than

@@ -4,6 +4,7 @@ using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
 using Motee.Application.Performance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Organisation;
 using Motee.Domain.Performance;
@@ -311,7 +312,7 @@ public class PerformanceGoalTests(PostgresFixture fixture)
         await goals.ChangeStatusAsync(closed, GoalStatus.Completed);
 
         PagedResult<PerformanceGoalDto> overdue =
-            await goals.ListAsync(new GoalQuery { OverdueOnly = true });
+            await goals.ListAsync(new GoalQuery { OverdueOnly = true }, Viewer.Everything);
 
         Assert.Equal(late, Assert.Single(overdue.Items).Id);
     }

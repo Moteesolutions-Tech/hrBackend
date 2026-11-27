@@ -28,6 +28,20 @@ public interface IDocumentService
 
     // ── documents ───────────────────────────────────────────────────────────
 
+    // Deliberately not narrowed by a viewer's data scope, unlike the other registers.
+    //
+    // A document is not an employee's record — HrDocument has no EmployeeId. It is a
+    // company artefact aimed at everybody (the handbook), at named departments, or at
+    // named people through shares. So "which employees does this scope reach" is the
+    // wrong question, and the right one — which departments is it assigned to — cannot
+    // be asked in SQL: AssignedDepartmentIds is jsonb behind a value converter, so
+    // narrowing by it would mean loading the whole library and filtering in memory,
+    // which works until a company has a lot of documents.
+    //
+    // The organisation-wide gate on the endpoint keeps ordinary employees out, and
+    // their own documents come through the /mine routes. Narrowing the library itself
+    // for a department-scoped HR user is a product decision and a schema change, not
+    // something to infer here.
     Task<PagedResult<DocumentDto>> ListAsync(
         DocumentQuery query,
         CancellationToken cancellationToken = default);

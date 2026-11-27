@@ -5,6 +5,7 @@ using Motee.Application.Countries;
 using Motee.Application.Expenses;
 using Motee.Application.Tenancy;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Domain.Expenses;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
@@ -17,6 +18,7 @@ internal sealed class ExpenseClaimService(
     ICountryProfileProvider countries,
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IExpenseClaimService
 {
     private const string SubjectType = "expense_claim";
@@ -32,13 +34,19 @@ internal sealed class ExpenseClaimService(
 
         // Their own, whatever the query said about whose — a client passing somebody
         // else's id must not read a colleague's claims through the self-service door.
-        return await PageAsync(query with { EmployeeId = employeeId }, cancellationToken);
+        // The viewer says the same thing again, so the narrowing does not rest on
+        // remembering the filter.
+        return await PageAsync(
+            query with { EmployeeId = employeeId },
+            Viewer.Themselves(employeeId),
+            cancellationToken);
     }
 
     public Task<PagedResult<ExpenseClaimDto>> ListAsync(
         ExpenseQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default) =>
-        PageAsync(query, cancellationToken);
+        PageAsync(query, viewer, cancellationToken);
 
     public async Task<ExpenseClaimDto?> GetAsync(
         Guid id,
@@ -439,9 +447,18 @@ internal sealed class ExpenseClaimService(
 
     private async Task<PagedResult<ExpenseClaimDto>> PageAsync(
         ExpenseQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken)
     {
         IQueryable<ExpenseClaim> source = dbContext.ExpenseClaims.AsNoTracking();
+
+        // Before the caller's own filters: reach is not something a filter can widen.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(claim => reachable.Contains(claim.EmployeeId));
+        }
 
         if (query.EmployeeId is Guid employeeId)
         {

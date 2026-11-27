@@ -1,4 +1,5 @@
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Learning;
 
 namespace Motee.Application.Learning;
@@ -13,6 +14,7 @@ public interface ICertificationService
 {
     Task<PagedResult<CertificationDto>> ListAsync(
         CertificationQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<CertTally> SummaryAsync(

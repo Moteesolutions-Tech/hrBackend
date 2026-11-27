@@ -4,6 +4,7 @@ using Motee.Application.Common;
 using Motee.Application.Contracts;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
+using Motee.Domain.Authorization;
 using Motee.Domain.Contracts;
 using Motee.Domain.Employees;
 using Motee.Domain.Organisation;
@@ -460,7 +461,8 @@ public class ContractServiceTests(PostgresFixture fixture)
         Guid acting = (await InForceAsync(provider, Request(endDate: soon))).Id;
 
         PagedResult<ContractDto> expiring =
-            await contracts.ListAsync(new ContractQuery { ExpiringSoonOnly = true });
+            await contracts.ListAsync(
+                new ContractQuery { ExpiringSoonOnly = true }, Viewer.Everything);
 
         Assert.Equal(acting, Assert.Single(expiring.Items).Id);
     }

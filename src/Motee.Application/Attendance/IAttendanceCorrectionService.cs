@@ -1,3 +1,4 @@
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Attendance;
 
@@ -19,6 +20,7 @@ public interface IAttendanceCorrectionService
 
     Task<PagedResult<AttendanceCorrectionDto>> ListAsync(
         CorrectionQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<CorrectionResult> ApproveAsync(

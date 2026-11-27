@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Performance;
 using Motee.Application.Tenancy;
+using Motee.Domain.Authorization;
 using Motee.Domain.Performance;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
@@ -12,6 +13,7 @@ internal sealed class PerformanceReviewService(
     MoteeDbContext dbContext,
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IPerformanceReviewService
 {
     public async Task<IReadOnlyList<PerformanceReviewDto>> MineAsync(
@@ -125,11 +127,20 @@ internal sealed class PerformanceReviewService(
 
     public async Task<PagedResult<PerformanceReviewDto>> ListAsync(
         ReviewQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         DateOnly today = await TodayAsync(cancellationToken);
 
         IQueryable<PerformanceReview> source = dbContext.PerformanceReviews.AsNoTracking();
+
+        // Before the caller's own filters: reach is not something a filter can widen.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(review => reachable.Contains(review.EmployeeId));
+        }
 
         if (query.EmployeeId is Guid employeeId)
         {

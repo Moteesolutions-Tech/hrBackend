@@ -3,6 +3,7 @@ using Motee.Application.Approvals;
 using Motee.Application.Common;
 using Motee.Application.Leave;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Domain.Leave;
 using Motee.Infrastructure.Persistence;
 
@@ -15,13 +16,15 @@ internal sealed class LeaveRequestService(
     LeaveYearResolver leaveYears,
     HolidayLookup holidays,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : ILeaveRequestService
 {
     public async Task<PagedResult<LeaveRequestDto>> ListAsync(
         LeaveRequestQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
-        IQueryable<LeaveRequest> matching = Filter(query);
+        IQueryable<LeaveRequest> matching = Narrow(Filter(query), viewer);
 
         int total = await matching.CountAsync(cancellationToken);
 
@@ -424,6 +427,20 @@ internal sealed class LeaveRequestService(
         }
 
         return days;
+    }
+
+    // What the caller may see, which no filter on the query can widen. A leave reason
+    // is often medical, so this register had the most to lose from being unscoped.
+    private IQueryable<LeaveRequest> Narrow(IQueryable<LeaveRequest> requests, Viewer viewer)
+    {
+        if (viewer.ReachesEveryone)
+        {
+            return requests;
+        }
+
+        IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+        return requests.Where(request => reachable.Contains(request.EmployeeId));
     }
 
     private IQueryable<LeaveRequest> Filter(LeaveRequestQuery query)

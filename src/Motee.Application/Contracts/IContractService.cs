@@ -1,4 +1,5 @@
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Contracts;
 
 namespace Motee.Application.Contracts;
@@ -11,8 +12,14 @@ namespace Motee.Application.Contracts;
 // version of the terms — is the part that would actually be relied on.
 public interface IContractService
 {
+    // The viewer is a separate argument rather than a field on the query because the
+    // query is bound from the request: a scope that can arrive in a query string is a
+    // scope the caller can widen. Required, so that a new call site has to say what it
+    // may see rather than defaulting to everything — which is how this register came to
+    // hand every employee's pay to anybody who could log in.
     Task<PagedResult<ContractDto>> ListAsync(
         ContractQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<ContractDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);

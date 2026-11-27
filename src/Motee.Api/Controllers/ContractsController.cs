@@ -49,7 +49,7 @@ public class ContractsController(IContractService contracts) : ApiControllerBase
     public async Task<IActionResult> List(
         [FromQuery] ContractQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await contracts.ListAsync(query, cancellationToken));
+        Ok(await contracts.ListAsync(query, Caller(), cancellationToken));
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType<ContractDto>(StatusCodes.Status200OK)]

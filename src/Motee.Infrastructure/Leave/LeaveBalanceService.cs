@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Leave;
+using Motee.Domain.Authorization;
 using Motee.Domain.Leave;
 using Motee.Infrastructure.Persistence;
 
@@ -10,6 +11,7 @@ internal sealed class LeaveBalanceService(
     MoteeDbContext dbContext,
     LeaveYearResolver leaveYears,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : ILeaveBalanceService
 {
     public async Task<LeaveBalanceDto?> ForAsync(
@@ -32,10 +34,20 @@ internal sealed class LeaveBalanceService(
 
     public async Task<PagedResult<LeaveBalanceDto>> ListAsync(
         LeaveBalanceQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<Domain.Employees.Employee> people = dbContext.Employees
             .Where(employee => employee.Status != Domain.Employees.EmployeeStatus.Deleted);
+
+        // This register is built from the employee list outright, so the reach applies
+        // to the people rather than to a row that points at them.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            people = people.Where(employee => reachable.Contains(employee.Id));
+        }
 
         if (query.DepartmentId is Guid departmentId)
         {

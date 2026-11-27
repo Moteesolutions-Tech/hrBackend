@@ -3,6 +3,7 @@ using Motee.Application.Attendance;
 using Motee.Application.Common;
 using Motee.Application.Tenancy;
 using Motee.Domain.Attendance;
+using Motee.Domain.Authorization;
 using Motee.Domain.Tenants;
 using Motee.Infrastructure.Persistence;
 
@@ -13,6 +14,7 @@ internal sealed class AttendanceCorrectionService(
     ICurrentEmployee currentEmployee,
     ICurrentTenant currentTenant,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IAttendanceCorrectionService
 {
     public async Task<IReadOnlyList<AttendanceCorrectionDto>> MineAsync(
@@ -109,9 +111,18 @@ internal sealed class AttendanceCorrectionService(
 
     public async Task<PagedResult<AttendanceCorrectionDto>> ListAsync(
         CorrectionQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<AttendanceCorrection> source = dbContext.AttendanceCorrections.AsNoTracking();
+
+        // Before the caller's own filters: reach is not something a filter can widen.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            source = source.Where(correction => reachable.Contains(correction.EmployeeId));
+        }
 
         if (query.EmployeeId is Guid employeeId)
         {

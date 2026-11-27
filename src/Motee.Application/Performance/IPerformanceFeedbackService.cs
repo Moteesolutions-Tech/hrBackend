@@ -1,3 +1,4 @@
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Performance;
 
@@ -39,6 +40,7 @@ public interface IPerformanceFeedbackService
     // Everything written about one person, for whoever is running their review.
     Task<PagedResult<PerformanceFeedbackDto>> ListAsync(
         FeedbackQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 }
 

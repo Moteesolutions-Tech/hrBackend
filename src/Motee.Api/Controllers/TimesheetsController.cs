@@ -54,7 +54,7 @@ public class TimesheetsController(ITimesheetService timesheets) : ApiControllerB
     public async Task<IActionResult> List(
         [FromQuery] TimesheetQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await timesheets.ListAsync(query, cancellationToken));
+        Ok(await timesheets.ListAsync(query, Caller(), cancellationToken));
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType<TimesheetDto>(StatusCodes.Status200OK)]

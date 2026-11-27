@@ -18,6 +18,7 @@ internal sealed class EmployeeService(
     IAssetService assets,
     AvatarLinker avatars,
     Application.Onboarding.IOnboardingService onboarding,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IEmployeeService
 {
     public async Task<PagedResult<EmployeeListItemDto>> ListAsync(
@@ -401,43 +402,23 @@ internal sealed class EmployeeService(
 
     // A Line Manager who can edit employees must not thereby be able to edit the
     // whole company. Scope decides which rows they reach at all.
-    private IQueryable<Employee> Narrow(IQueryable<Employee> employees, EmployeeQuery query) =>
-        query.Scope.Kind switch
+    //
+    // The rule itself lives in EmployeeReach, which every other register now narrows
+    // with too. It used to live here, as the only register that narrowed at all — and
+    // keeping a second copy would mean the employee list and the contract register
+    // could come to disagree about who a department-scoped user may see.
+    private IQueryable<Employee> Narrow(IQueryable<Employee> employees, EmployeeQuery query)
+    {
+        if (query.Scope.Kind == DataScopeKind.All)
         {
-            DataScopeKind.All => employees,
+            return employees;
+        }
 
-            // The departments the access level names, not the one the viewer happens
-            // to be in. Moving someone between departments must not silently change
-            // what they can see.
-            DataScopeKind.Department => employees.Where(employee =>
-                employee.DepartmentId != null
-                && query.Scope.DepartmentIds.Contains(employee.DepartmentId.Value)),
+        IQueryable<Guid> reachable = reach.IdsOf(
+            Viewer.Of(query.Scope, query.ViewerEmployeeId));
 
-            // Everyone posted to the named sites. Read straight off the employee rather
-            // than through the department, because the whole point of this axis is that
-            // it cuts across departments — Engineering is in Lagos and London both.
-            DataScopeKind.Branch => employees.Where(employee =>
-                employee.BranchId != null
-                && query.Scope.BranchIds.Contains(employee.BranchId.Value)),
-
-            // An employee belongs to a department, and the department to a unit, so
-            // this reaches everyone under the named units.
-            DataScopeKind.BusinessUnit => employees.Where(employee =>
-                employee.DepartmentId != null
-                && dbContext.Departments.Any(department =>
-                    department.Id == employee.DepartmentId
-                    && department.BusinessUnitId != null
-                    && query.Scope.BusinessUnitIds.Contains(department.BusinessUnitId.Value))),
-
-            // Their reports and themselves — a manager needs their own row in the
-            // list they work from.
-            DataScopeKind.DirectReports => employees.Where(employee =>
-                employee.ManagerId == query.ViewerEmployeeId || employee.Id == query.ViewerEmployeeId),
-
-            DataScopeKind.Self => employees.Where(employee => employee.Id == query.ViewerEmployeeId),
-
-            _ => employees.Where(_ => false),
-        };
+        return employees.Where(employee => reachable.Contains(employee.Id));
+    }
 
     private async Task<EmployeeOutcome?> ValidateAsync(
         EmployeeRequest request,

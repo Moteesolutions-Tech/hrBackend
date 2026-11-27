@@ -90,7 +90,7 @@ public class ExpenseClaimsController(IExpenseClaimService claims) : ApiControlle
     public async Task<IActionResult> List(
         [FromQuery] ExpenseQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await claims.ListAsync(query, cancellationToken));
+        Ok(await claims.ListAsync(query, Caller(), cancellationToken));
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType<ExpenseClaimDto>(StatusCodes.Status200OK)]

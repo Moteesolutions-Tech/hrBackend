@@ -1,4 +1,5 @@
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Performance;
 
 namespace Motee.Application.Performance;
@@ -27,6 +28,7 @@ public interface IPerformanceGoalService
 
     Task<PagedResult<PerformanceGoalDto>> ListAsync(
         GoalQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<PerformanceGoalDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);

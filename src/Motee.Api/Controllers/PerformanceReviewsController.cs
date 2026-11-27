@@ -58,7 +58,7 @@ public class PerformanceReviewsController(IPerformanceReviewService reviews) : A
     public async Task<IActionResult> List(
         [FromQuery] ReviewQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await reviews.ListAsync(query, cancellationToken));
+        Ok(await reviews.ListAsync(query, Caller(), cancellationToken));
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType<PerformanceReviewDto>(StatusCodes.Status200OK)]

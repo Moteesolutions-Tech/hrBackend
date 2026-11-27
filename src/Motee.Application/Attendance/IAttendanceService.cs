@@ -1,5 +1,6 @@
 using Motee.Application.Common;
 using Motee.Domain.Attendance;
+using Motee.Domain.Authorization;
 
 namespace Motee.Application.Attendance;
 
@@ -67,8 +68,10 @@ public interface IAttendanceService
 
     // ── the company's day ───────────────────────────────────────────────────
 
+    // See ILeaveRequestService.ListAsync for why the viewer is a separate argument.
     Task<PagedResult<AttendanceDayDto>> ListAsync(
         AttendanceQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     // HR typing a day in, for somebody who forgot or whose reader was down. Creates

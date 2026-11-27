@@ -1,3 +1,4 @@
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Attendance;
 
@@ -25,6 +26,7 @@ public interface ITimesheetService
 
     Task<PagedResult<TimesheetDto>> ListAsync(
         TimesheetQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     Task<TimesheetDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);

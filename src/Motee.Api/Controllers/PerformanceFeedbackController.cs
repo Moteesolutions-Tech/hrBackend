@@ -90,7 +90,7 @@ public class PerformanceFeedbackController(
     public async Task<IActionResult> List(
         [FromQuery] FeedbackQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await feedback.ListAsync(query, cancellationToken));
+        Ok(await feedback.ListAsync(query, Caller(), cancellationToken));
 
     private static string StatusFor(FeedbackOutcome outcome) => outcome switch
     {

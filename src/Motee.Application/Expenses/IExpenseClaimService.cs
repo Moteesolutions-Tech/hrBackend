@@ -1,5 +1,6 @@
 using Motee.Application.Approvals;
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Expenses;
 
 namespace Motee.Application.Expenses;
@@ -42,8 +43,10 @@ public interface IExpenseClaimService
 
     // ── reviewing and paying ────────────────────────────────────────────────
 
+    // See ILeaveRequestService.ListAsync for why the viewer is a separate argument.
     Task<PagedResult<ExpenseClaimDto>> ListAsync(
         ExpenseQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     // Sent back to be rewritten rather than turned down. The difference matters: a

@@ -176,14 +176,6 @@ public class AssetsController(
         AssignedToEmployeeId = filters.AssignedToEmployeeId,
     };
 
-    private DataScope GrantedScope() =>
-        HttpContext.Items[PermissionAuthorizationHandler.DataScopeItemKey] is DataScope scope
-            ? scope
-            : DataScope.Nothing;
-
-    private Guid? ViewerEmployeeId() =>
-        Guid.TryParse(User.FindFirst(MoteeClaimTypes.EmployeeId)?.Value, out Guid id) ? id : null;
-
     private static string StatusFor(AssetOutcome outcome) => outcome switch
     {
         AssetOutcome.NotFound => MoteeStatusCodes.NotFound,

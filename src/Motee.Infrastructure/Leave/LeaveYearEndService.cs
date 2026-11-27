@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Leave;
+using Motee.Domain.Authorization;
 using Motee.Domain.Leave;
 using Motee.Infrastructure.Persistence;
 
@@ -192,6 +193,11 @@ internal sealed class LeaveYearEndService(
                     Page = page,
                     PageSize = PagedQuery.MaxPageSize,
                 },
+
+                // Year end runs for the whole company with nobody behind it. There is
+                // no viewer to narrow by, and carrying forward only part of the
+                // workforce would be the bug.
+                Viewer.Everything,
                 cancellationToken);
 
             all.AddRange(batch.Items);
