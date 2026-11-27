@@ -38,6 +38,7 @@ internal sealed class ReportService(
 
         DataScope scope;
         Guid? viewer = await currentEmployee.IdAsync(cancellationToken);
+        DateOnly asOf = await TodayAsync(cancellationToken);
 
         List<ReportDatasetDto> offered = [];
 
@@ -61,6 +62,7 @@ internal sealed class ReportService(
 
                 // One row, for the total. The page itself is thrown away.
                 new PagedQuery { Page = 1, PageSize = 1 },
+                asOf,
                 cancellationToken);
 
             offered.Add(new ReportDatasetDto
@@ -88,15 +90,22 @@ internal sealed class ReportService(
             return ReportRunResult.Failed(resolved.Outcome, resolved.Column);
         }
 
+        // Read once and used for both the derived columns and the response's AsOf, so
+        // the ages in the table and the date printed above it cannot be a day apart
+        // across midnight in the tenant's zone.
+        DateOnly asOf = await TodayAsync(cancellationToken);
+
         PagedResult<IReadOnlyDictionary<string, string?>> rows = await providers.RowsAsync(
             dataset,
             resolved.Scope,
             await currentEmployee.IdAsync(cancellationToken),
             request.Filters,
             request,
+            asOf,
             cancellationToken);
 
-        IReadOnlyList<ReportColumn> columns = ReportCatalogue.Resolve(dataset, request.Columns);
+        IReadOnlyList<ReportColumn> columns =
+            ReportCatalogue.Resolve(resolved.Visible, request.Columns);
 
         return ReportRunResult.Ok(new ReportTableDto
         {
@@ -115,7 +124,7 @@ internal sealed class ReportService(
                 PageSize = rows.PageSize,
                 TotalItems = rows.TotalItems,
             },
-            AsOf = await TodayAsync(cancellationToken),
+            AsOf = asOf,
         });
     }
 
@@ -133,14 +142,23 @@ internal sealed class ReportService(
             return ReportExportResult.Failed(resolved.Outcome, resolved.Column);
         }
 
-        // The scope goes onto the job here, while there is still a signed-in user to
-        // resolve it from. The worker that writes the file has no request behind it and
-        // cannot ask again — ReportExportFilters says what that would cost.
+        // The scope and the column list both go onto the job here, while there is still
+        // a signed-in user to resolve them from. The worker that writes the file has no
+        // request behind it and cannot ask again — ReportExportFilters says what that
+        // would cost.
+        //
+        // Columns are stored already resolved and already gated, rather than as the
+        // caller asked for them, so a worker reading the row cannot widen them back to
+        // the dataset's full set and put pay in the file.
         return ReportExportResult.Ok(await exports.RequestReportExportAsync(
             new ReportExportFilters
             {
                 Dataset = dataset.Key,
-                Columns = request.Columns,
+                Columns =
+                [
+                    .. ReportCatalogue.Resolve(resolved.Visible, request.Columns)
+                        .Select(column => column.Key),
+                ],
                 Filters = request.Filters,
                 Scope = resolved.Scope,
                 ViewerEmployeeId = await currentEmployee.IdAsync(cancellationToken),
@@ -175,9 +193,13 @@ internal sealed class ReportService(
             return new Resolution { Outcome = ReportOutcome.UnknownDataset };
         }
 
+        // Established before the filter check, because a column this caller cannot see
+        // is one they cannot filter on either.
+        IReadOnlyList<ReportColumn> visible = ReportCatalogue.Visible(dataset, held, isOwner);
+
         // Refused, not ignored. A report that quietly drops "department = Engineering"
         // answers a different question from the one asked, and looks right doing it.
-        if (ReportCatalogue.UnfilterableColumn(dataset, filters) is string offending)
+        if (ReportCatalogue.UnfilterableColumn(visible, filters) is string offending)
         {
             return new Resolution
             {
@@ -191,6 +213,7 @@ internal sealed class ReportService(
             Outcome = ReportOutcome.Succeeded,
             Dataset = dataset,
             Scope = ReportCatalogue.ScopeFor(held, isOwner, dataset),
+            Visible = visible,
         };
     }
 
@@ -205,6 +228,11 @@ internal sealed class ReportService(
         public string? Column { get; init; }
 
         public DataScope Scope { get; init; } = DataScope.Nothing;
+
+        // The dataset's columns minus any this caller may not see. Resolved here
+        // because the gate needs permissions — and an export's worker will not have
+        // any, so the result has to travel with the job.
+        public IReadOnlyList<ReportColumn> Visible { get; init; } = [];
     }
 
     private static IReadOnlyDictionary<string, string?> Only(

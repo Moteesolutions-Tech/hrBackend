@@ -40,6 +40,39 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
         CancellationToken cancellationToken) =>
         Ok(await approvals.MyQueueAsync(query, cancellationToken));
 
+    // The request types somebody may raise here, with the fields each one asks for.
+    //
+    // Behind Create rather than View: this is the list of what you may submit, so the
+    // permission that matters is the one to submit. Self-service holds it — raising a
+    // request is self-service, like booking leave.
+    [HttpGet("document-types")]
+    [ProducesResponseType<IReadOnlyList<RaisableTypeDto>>(StatusCodes.Status200OK)]
+    [RequiresPermission(Module, PermissionAction.Create)]
+    public async Task<IActionResult> DocumentTypes(CancellationToken cancellationToken) =>
+        Ok(await approvals.DocumentTypesAsync(cancellationToken));
+
+    // Raising a request of a type with no module of its own.
+    //
+    // The one place a client may start a chain, which is why the class comment above
+    // says there is no "start" endpoint — and it is still true of the module-driven
+    // types, which this refuses. For the six nothing else starts, the approval is the
+    // record, so there is no earlier thing for a module to have created.
+    [HttpPost]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status201Created)]
+    [RequiresPermission(Module, PermissionAction.Create)]
+    public async Task<IActionResult> Raise(
+        RaiseApprovalRequest request,
+        CancellationToken cancellationToken)
+    {
+        ApprovalResult result = await approvals.RaiseAsync(request, cancellationToken);
+
+        return result.Succeeded
+            ? CreatedEnvelope(result.Approval!, "Submitted for approval.")
+            : Failure<ApprovalDto>(
+                StatusFor(result.Outcome),
+                result.Reason ?? MessageFor(result.Outcome));
+    }
+
     // The register: every approval in the tenant, filtered. Behind the module permission,
     // unlike the queue — the queue is somebody's own work, this is everybody's.
     //
@@ -105,7 +138,20 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
         Guid id,
         DecideApprovalRequest request,
         CancellationToken cancellationToken) =>
-        Respond(await approvals.DecideAsync(id, request.Decision, request.Note, cancellationToken));
+        Respond(await approvals.DecideAsync(
+            id, request.Decision, request.Note, request.SignatureFileId, cancellationToken));
+
+    // A note without a decision. No permission attribute, like decide: the right to
+    // comment comes from being party to the chain, which the service checks. A module
+    // permission would let anybody holding it talk on somebody else's request.
+    [Authorize]
+    [HttpPost("{id:guid}/comments")]
+    [ProducesResponseType<ApprovalDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Comment(
+        Guid id,
+        ApprovalCommentRequest request,
+        CancellationToken cancellationToken) =>
+        Respond(await approvals.CommentAsync(id, request.Message, cancellationToken));
 
     [Authorize]
     [HttpPost("{id:guid}/resubmit")]
@@ -169,9 +215,19 @@ public sealed record DecideApprovalRequest
     public required ApprovalStepStatus Decision { get; init; }
 
     public string? Note { get; init; }
+
+    // Optional, and only on an approval. A file already uploaded through the files
+    // module with purpose ApprovalSignature — referenced rather than posted as bytes,
+    // for the same reason the chain's attachments are.
+    public Guid? SignatureFileId { get; init; }
 }
 
 public sealed record CancelApprovalRequest
 {
     public string? Reason { get; init; }
+}
+
+public sealed record ApprovalCommentRequest
+{
+    public required string Message { get; init; }
 }

@@ -7,6 +7,7 @@ using Motee.Application.Leave;
 using Motee.Application.Reports;
 using Motee.Domain.Assets;
 using Motee.Domain.Authorization;
+using Motee.Domain.Contracts;
 using Motee.Domain.Employees;
 using Motee.Domain.Leave;
 using Motee.Domain.Organisation;
@@ -37,17 +38,22 @@ internal sealed class ReportRowProviders(
     ILeaveRequestService leave,
     IAssetService assets)
 {
+    // asOf is passed in rather than read here, because the two callers establish it
+    // differently: a request knows the tenant from the signed-in user, while the export
+    // worker has to take it off the job row. Both mean the tenant's own today, which is
+    // what makes "age" and "tenure" answerable at all.
     public async Task<PagedResult<IReadOnlyDictionary<string, string?>>> RowsAsync(
         ReportDataset dataset,
         DataScope scope,
         Guid? viewerEmployeeId,
         IReadOnlyDictionary<string, string?>? filters,
         PagedQuery page,
+        DateOnly asOf,
         CancellationToken cancellationToken) =>
         dataset.Key switch
         {
             "employees" => await EmployeesAsync(
-                dataset, scope, viewerEmployeeId, filters, page, cancellationToken),
+                dataset, scope, viewerEmployeeId, filters, page, asOf, cancellationToken),
             "leave" => await LeaveAsync(dataset, filters, page, cancellationToken),
             "assets" => await AssetsAsync(
                 dataset, scope, viewerEmployeeId, filters, page, cancellationToken),
@@ -67,6 +73,7 @@ internal sealed class ReportRowProviders(
         Guid? viewerEmployeeId,
         IReadOnlyDictionary<string, string?>? filters,
         PagedQuery page,
+        DateOnly asOf,
         CancellationToken cancellationToken)
     {
         Guid? departmentId = await DepartmentIdAsync(
@@ -108,29 +115,47 @@ internal sealed class ReportRowProviders(
                 // Name and job title share the service's one search box, which matches
                 // across both. Narrower than the column implies, and the alternative is
                 // filtering in memory over the whole roster.
-                Search = Filter(filters, "name") ?? Filter(filters, "jobTitle"),
+                Search = Filter(filters, "fullName") ?? Filter(filters, "jobTitle"),
                 DepartmentId = departmentId,
                 Status = status,
                 EmploymentType = employmentType,
             },
             cancellationToken);
 
+        // Read for the narrowed set only, after the scope has done its work, so a
+        // team-scoped manager's report does not pull the company's pay and dates of
+        // birth out of the database on the way to being thrown away.
+        EmployeeExtras extras = await ExtrasAsync(
+            [.. rows.Select(employee => employee.Id)], cancellationToken);
+
         return Page(
             rows.Select(employee => Row(dataset, key => key switch
             {
                 "employeeNumber" => employee.EmployeeNumber,
-                "name" => employee.Name,
+                "fullName" => employee.Name,
                 "email" => employee.Email,
                 "phone" => employee.Phone,
                 "jobTitle" => employee.JobTitle,
                 "department" => employee.Department,
                 "employmentType" => employee.EmploymentType?.ToString(),
+                "grade" => extras.Grade.GetValueOrDefault(employee.Id),
+                "gender" => extras.Gender.GetValueOrDefault(employee.Id),
                 "workMode" => employee.WorkMode?.ToString(),
                 "workLocation" => employee.WorkLocation,
+                "region" => Region(employee, extras),
                 "manager" => employee.ManagerName,
                 "directReports" => Count(employee.DirectReportCount),
+                "age" => AgeOn(extras.DateOfBirth.GetValueOrDefault(employee.Id), asOf),
+                "tenureYears" => TenureOn(employee.StartDate, asOf),
                 "startDate" => Day(employee.StartDate),
                 "status" => employee.Status.ToString(),
+
+                // Null, not zero, when there is no contract on file: an employee whose
+                // pay is not recorded has not been recorded as earning nothing.
+                "salary" => extras.Salary.TryGetValue(employee.Id, out decimal pay)
+                    ? Amount(pay)
+                    : null,
+
                 _ => null,
             })),
             page,
@@ -140,6 +165,171 @@ internal sealed class ReportRowProviders(
             workMode is null
                 ? null
                 : employee => employee["workMode"] == workMode.Value.ToString());
+    }
+
+    // The fields the roster report needs that the employee list DTO does not carry.
+    //
+    // Deliberately not added to EmployeeListItemDto, which every employee screen reads:
+    // gender, date of birth and pay do not belong in a general list payload, and putting
+    // them there would widen who sees them to everybody holding View on employees. Here
+    // they are read once, for one report, behind that report's own gates.
+    private sealed record EmployeeExtras
+    {
+        public required IReadOnlyDictionary<Guid, string?> Gender { get; init; }
+
+        public required IReadOnlyDictionary<Guid, string?> Grade { get; init; }
+
+        public required IReadOnlyDictionary<Guid, DateOnly?> DateOfBirth { get; init; }
+
+        public required IReadOnlyDictionary<Guid, Guid?> BranchId { get; init; }
+
+        public required IReadOnlyDictionary<Guid, string?> BranchRegion { get; init; }
+
+        public required IReadOnlyDictionary<Guid, decimal> Salary { get; init; }
+    }
+
+    private async Task<EmployeeExtras> ExtrasAsync(
+        IReadOnlyList<Guid> ids,
+        CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0)
+        {
+            return new EmployeeExtras
+            {
+                Gender = new Dictionary<Guid, string?>(),
+                Grade = new Dictionary<Guid, string?>(),
+                DateOfBirth = new Dictionary<Guid, DateOnly?>(),
+                BranchId = new Dictionary<Guid, Guid?>(),
+                BranchRegion = new Dictionary<Guid, string?>(),
+                Salary = new Dictionary<Guid, decimal>(),
+            };
+        }
+
+        List<EmployeeFacts> facts = await dbContext.Employees
+            .AsNoTracking()
+            .Where(employee => ids.Contains(employee.Id))
+            .Select(employee => new EmployeeFacts
+            {
+                Id = employee.Id,
+                Gender = employee.Gender,
+                Grade = employee.Grade,
+                DateOfBirth = employee.DateOfBirth,
+                BranchId = employee.BranchId,
+            })
+            .ToListAsync(cancellationToken);
+
+        // Region prefers the branch's own region and falls back to its city, matching
+        // the chain the reports screen uses.
+        Dictionary<Guid, string?> regions = await dbContext.Branches
+            .AsNoTracking()
+            .ToDictionaryAsync(
+                branch => branch.Id,
+                branch => branch.Region ?? branch.City,
+                cancellationToken);
+
+        // The active contract, latest first where somebody has more than one — a
+        // renewal signed before the old one ends is the normal case, and the new terms
+        // are the ones that answer "what do they earn".
+        List<ContractPay> pay = await dbContext.Contracts
+            .AsNoTracking()
+            .Where(contract =>
+                ids.Contains(contract.EmployeeId)
+                && contract.Status == ContractStatus.Active
+                && !contract.IsArchived
+                && contract.Salary != null)
+            .OrderByDescending(contract => contract.StartDate)
+            .Select(contract => new ContractPay
+            {
+                EmployeeId = contract.EmployeeId,
+                Salary = contract.Salary!.Value,
+            })
+            .ToListAsync(cancellationToken);
+
+        return new EmployeeExtras
+        {
+            Gender = facts.ToDictionary(fact => fact.Id, fact => fact.Gender),
+            Grade = facts.ToDictionary(fact => fact.Id, fact => fact.Grade),
+            DateOfBirth = facts.ToDictionary(fact => fact.Id, fact => fact.DateOfBirth),
+            BranchId = facts.ToDictionary(fact => fact.Id, fact => fact.BranchId),
+            BranchRegion = regions,
+
+            // First wins, and the list is already ordered newest first.
+            Salary = pay
+                .GroupBy(row => row.EmployeeId)
+                .ToDictionary(group => group.Key, group => group.First().Salary),
+        };
+    }
+
+    private sealed record EmployeeFacts
+    {
+        public required Guid Id { get; init; }
+
+        public string? Gender { get; init; }
+
+        public string? Grade { get; init; }
+
+        public DateOnly? DateOfBirth { get; init; }
+
+        public Guid? BranchId { get; init; }
+    }
+
+    private sealed record ContractPay
+    {
+        public required Guid EmployeeId { get; init; }
+
+        public required decimal Salary { get; init; }
+    }
+
+    // Branch region, then branch city, then the employee's own free-text work location.
+    // "Unspecified" rather than blank at the end, because a region chart with an unnamed
+    // slice is worse than one with an honest bucket.
+    private static string Region(EmployeeListItemDto employee, EmployeeExtras extras)
+    {
+        string? region = employee.BranchId is Guid branchId
+            ? extras.BranchRegion.GetValueOrDefault(branchId)
+            : null;
+
+        return Trimmed(region) ?? Trimmed(employee.WorkLocation) ?? "Unspecified";
+    }
+
+    private static string? Trimmed(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // Calendar age, not a division by an average year: somebody born on 29 February is
+    // the age their birthday says, and a report that disagrees with a passport is the
+    // kind of detail that gets noticed.
+    //
+    // Empty rather than 0 when there is no date of birth. A chart bucketing a missing
+    // age as a newborn is worse than one leaving them out.
+    private static string AgeOn(DateOnly? dateOfBirth, DateOnly asOf)
+    {
+        if (dateOfBirth is not DateOnly born || born > asOf)
+        {
+            return string.Empty;
+        }
+
+        int age = asOf.Year - born.Year;
+
+        if (born.AddYears(age) > asOf)
+        {
+            age--;
+        }
+
+        return Count(age);
+    }
+
+    // Tenure genuinely is a duration rather than a count of birthdays, so the average
+    // year is the right divisor. One decimal place, as the screen shows it.
+    private static string TenureOn(DateOnly? startDate, DateOnly asOf)
+    {
+        if (startDate is not DateOnly started || started > asOf)
+        {
+            return string.Empty;
+        }
+
+        double years = asOf.DayNumber - started.DayNumber;
+
+        return Math.Round(years / 365.25, 1).ToString("0.#", CultureInfo.InvariantCulture);
     }
 
     // ── leave ───────────────────────────────────────────────────────────────

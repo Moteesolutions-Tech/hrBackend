@@ -263,7 +263,7 @@ public class ReportExportTests(PostgresFixture fixture)
         ExportJobDto employeeJob = await Exports(provider).RequestEmployeeExportAsync(
             new EmployeeExportFilters { Scope = DataScope.Everything });
 
-        ReportExportResult report = await ExportAsync(provider, "employees", columns: ["name"]);
+        ReportExportResult report = await ExportAsync(provider, "employees", columns: ["fullName"]);
 
         Assert.Equal(
             ExportStatus.Completed,
@@ -313,7 +313,7 @@ public class ReportExportTests(PostgresFixture fixture)
         await HireAsync(provider, "Ada", _engineeringId);
 
         ReportExportResult export = await ExportAsync(
-            provider, "employees", columns: ["department", "name"]);
+            provider, "employees", columns: ["department", "fullName"]);
 
         string[] lines = LinesOf(await ReadCsvAsync(provider, export.Job!.Id));
 
@@ -334,7 +334,7 @@ public class ReportExportTests(PostgresFixture fixture)
             provider,
             "employees",
             filters: new Dictionary<string, string?> { ["department"] = "Engineering" },
-            columns: ["name"]);
+            columns: ["fullName"]);
 
         string csv = await ReadCsvAsync(provider, export.Job!.Id);
 
@@ -358,7 +358,7 @@ public class ReportExportTests(PostgresFixture fixture)
         await HireAsync(provider, "Ada", departmentId);
 
         ReportExportResult export = await ExportAsync(
-            provider, "employees", columns: ["department", "name"]);
+            provider, "employees", columns: ["department", "fullName"]);
 
         string[] lines = LinesOf(await ReadCsvAsync(provider, export.Job!.Id));
 
@@ -381,7 +381,7 @@ public class ReportExportTests(PostgresFixture fixture)
         await ActAsync(
             provider, adaId, "ada", DataScope.Departments(_engineeringId), "organization.employees");
 
-        ReportExportResult export = await ExportAsync(provider, "employees", columns: ["name"]);
+        ReportExportResult export = await ExportAsync(provider, "employees", columns: ["fullName"]);
 
         Assert.True(export.Succeeded, export.Outcome.ToString());
 

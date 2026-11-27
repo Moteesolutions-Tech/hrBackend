@@ -25,7 +25,11 @@ public sealed record ReportExportFilters
 {
     public required string Dataset { get; init; }
 
-    public IReadOnlyList<string>? Columns { get; init; }
+    // Already resolved and already gated against the requester's permissions, not the
+    // keys they asked for. Required and never empty, because an absent list means "every
+    // column the dataset declares" — which on the worker would quietly restore a column
+    // the caller was not allowed to see, pay being the one that matters.
+    public required IReadOnlyList<string> Columns { get; init; }
 
     public IReadOnlyDictionary<string, string?>? Filters { get; init; }
 

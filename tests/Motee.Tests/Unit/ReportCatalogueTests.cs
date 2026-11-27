@@ -79,11 +79,11 @@ public class ReportCatalogueTests
 
         Assert.Equal(
             employees.Columns.Count,
-            ReportCatalogue.Resolve(employees, null).Count);
+            ReportCatalogue.Resolve(employees.Columns, null).Count);
 
         Assert.Equal(
             employees.Columns.Count,
-            ReportCatalogue.Resolve(employees, []).Count);
+            ReportCatalogue.Resolve(employees.Columns, []).Count);
     }
 
     [Fact]
@@ -92,9 +92,9 @@ public class ReportCatalogueTests
         ReportDataset employees = ReportCatalogue.Find("employees")!;
 
         IReadOnlyList<ReportColumn> chosen =
-            ReportCatalogue.Resolve(employees, ["department", "name"]);
+            ReportCatalogue.Resolve(employees.Columns, ["department", "fullName"]);
 
-        Assert.Equal(["department", "name"], chosen.Select(column => column.Key).ToArray());
+        Assert.Equal(["department", "fullName"], chosen.Select(column => column.Key).ToArray());
     }
 
     // Dropped rather than refused, matching EmployeeExportColumns: a saved report naming
@@ -106,9 +106,9 @@ public class ReportCatalogueTests
         ReportDataset employees = ReportCatalogue.Find("employees")!;
 
         IReadOnlyList<ReportColumn> chosen =
-            ReportCatalogue.Resolve(employees, ["name", "salary", "email"]);
+            ReportCatalogue.Resolve(employees.Columns, ["fullName", "bonus", "email"]);
 
-        Assert.Equal(["name", "email"], chosen.Select(column => column.Key).ToArray());
+        Assert.Equal(["fullName", "email"], chosen.Select(column => column.Key).ToArray());
     }
 
     // Asking only for columns that no longer exist would otherwise produce a table with
@@ -120,7 +120,7 @@ public class ReportCatalogueTests
 
         Assert.Equal(
             employees.Columns.Count,
-            ReportCatalogue.Resolve(employees, ["salary", "bonus"]).Count);
+            ReportCatalogue.Resolve(employees.Columns, ["bonus", "shoeSize"]).Count);
     }
 
     // ── filters ─────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ public class ReportCatalogueTests
         ReportDataset employees = ReportCatalogue.Find("employees")!;
 
         Assert.Null(ReportCatalogue.UnfilterableColumn(
-            employees,
+            employees.Columns,
             new Dictionary<string, string?> { ["department"] = "Engineering" }));
     }
 
@@ -146,7 +146,7 @@ public class ReportCatalogueTests
         Assert.Equal(
             "email",
             ReportCatalogue.UnfilterableColumn(
-                employees,
+                employees.Columns,
                 new Dictionary<string, string?> { ["email"] = "ada@" }));
     }
 
@@ -156,10 +156,10 @@ public class ReportCatalogueTests
         ReportDataset employees = ReportCatalogue.Find("employees")!;
 
         Assert.Equal(
-            "salary",
+            "bonus",
             ReportCatalogue.UnfilterableColumn(
-                employees,
-                new Dictionary<string, string?> { ["salary"] = "50000" }));
+                employees.Columns,
+                new Dictionary<string, string?> { ["bonus"] = "50000" }));
     }
 
     [Fact]
@@ -167,9 +167,9 @@ public class ReportCatalogueTests
     {
         ReportDataset employees = ReportCatalogue.Find("employees")!;
 
-        Assert.Null(ReportCatalogue.UnfilterableColumn(employees, null));
+        Assert.Null(ReportCatalogue.UnfilterableColumn(employees.Columns, null));
         Assert.Null(ReportCatalogue.UnfilterableColumn(
-            employees, new Dictionary<string, string?>()));
+            employees.Columns, new Dictionary<string, string?>()));
     }
 
     // ── who may read what ───────────────────────────────────────────────────
@@ -273,16 +273,150 @@ public class ReportCatalogueTests
                 isOwner: true,
                 ReportCatalogue.Find("employees")!).Kind);
 
-    private static AccessLevelPermissions Holding(string module) => new()
+    // ── what the reports screen reads ───────────────────────────────────────
+
+    // The frontend's report registry is the spec, and five of its reports share one row
+    // shape: src/lib/reports/registry/people.ts declares EmpRow and selectEmployeeRows,
+    // read by Employees, Gender Split, Age Demographics, Department Breakdown and
+    // Hiring Trend. Their analytics are computed in the browser from these fields, so a
+    // field missing here is not a narrower table — it is a chart that cannot be drawn.
+    //
+    // Pinned as a list rather than left to drift, because the failure is silent: the
+    // report renders, with an empty graph.
+    [Fact]
+    public void TheEmployeesDatasetCarriesEveryFieldTheReportsScreenReads()
+    {
+        ReportDataset employees = ReportCatalogue.Find("employees")!;
+
+        string[] needed =
+        [
+            "employeeNumber", "fullName", "department", "jobTitle", "employmentType",
+            "status", "gender", "grade", "age", "startDate", "tenureYears", "manager",
+            "directReports", "salary", "region",
+        ];
+
+        Assert.All(needed, key => Assert.Contains(
+            key,
+            employees.Columns.Select(column => column.Key),
+            StringComparer.Ordinal));
+    }
+
+    // ── columns with their own permission ───────────────────────────────────
+
+    // Pay is the case that makes a per-column gate necessary. The frontend declares an
+    // "Annual Salary" column on a report gated by organization.employees, so as
+    // specified, anybody who can open the staff list reads everyone's pay.
+    //
+    // Salary is recorded on the contract, so the permission for reading it is
+    // operations.contracts. The column is dropped and the rows are kept: a manager
+    // without contract access should still get their team's roster.
+    [Fact]
+    public void PayIsNotOfferedToSomebodyWhoCanOnlySeeTheStaffList()
+    {
+        ReportDataset employees = ReportCatalogue.Find("employees")!;
+
+        IReadOnlyList<ReportColumn> visible = ReportCatalogue.Visible(
+            employees, Holding(employees.Module), isOwner: false);
+
+        Assert.DoesNotContain(
+            "salary", visible.Select(column => column.Key), StringComparer.Ordinal);
+
+        // The rest of the roster survives — this drops a column, not the report.
+        Assert.Contains("fullName", visible.Select(column => column.Key), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void PayIsOfferedToSomebodyWhoCanReadContracts()
+    {
+        ReportDataset employees = ReportCatalogue.Find("employees")!;
+
+        IReadOnlyList<ReportColumn> visible = ReportCatalogue.Visible(
+            employees,
+            Holding(employees.Module, "operations.contracts"),
+            isOwner: false);
+
+        Assert.Contains("salary", visible.Select(column => column.Key), StringComparer.Ordinal);
+    }
+
+    // The self-service floor reaches operations.contracts at Self scope, so "holds the
+    // module at all" would hand everybody the pay column. Same bar as CanRead: seeing
+    // your own contract is not permission to see the team's pay.
+    [Fact]
+    public void PayIsNotOfferedOnContractsHeldOnlyAtSelfScope()
+    {
+        ReportDataset employees = ReportCatalogue.Find("employees")!;
+
+        AccessLevelPermissions self = new()
+        {
+            Modules =
+            [
+                new ModulePermission
+                {
+                    Module = employees.Module,
+                    Access = true,
+                    Actions = [PermissionAction.View],
+                },
+                new ModulePermission
+                {
+                    Module = "operations.contracts",
+                    Access = true,
+                    Actions = [PermissionAction.View],
+                },
+            ],
+            Scope = new DataScope { Kind = DataScopeKind.Self },
+        };
+
+        Assert.DoesNotContain(
+            "salary",
+            ReportCatalogue.Visible(employees, self, isOwner: false)
+                .Select(column => column.Key),
+            StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void TheOwnerIsOfferedEveryColumn() =>
+        Assert.All(ReportCatalogue.All, dataset => Assert.Equal(
+            dataset.Columns.Count,
+            ReportCatalogue.Visible(dataset, AccessLevelPermissions.Nothing, isOwner: true).Count));
+
+    // Naming the column explicitly must not get round the gate. Resolve runs over what
+    // Visible returned, so a caller who cannot see pay cannot select it either.
+    [Fact]
+    public void AskingForAGatedColumnByNameDoesNotProduceIt()
+    {
+        ReportDataset employees = ReportCatalogue.Find("employees")!;
+
+        IReadOnlyList<ReportColumn> chosen = ReportCatalogue.Resolve(
+            ReportCatalogue.Visible(employees, Holding(employees.Module), isOwner: false),
+            ["fullName", "salary"]);
+
+        Assert.Equal(["fullName"], chosen.Select(column => column.Key).ToArray());
+    }
+
+    // And neither can it be filtered on. A filter over a hidden column leaks it by
+    // halves: narrow on salary > 50000, count the rows, repeat.
+    [Fact]
+    public void AGatedColumnCannotBeFilteredOnEither()
+    {
+        ReportDataset employees = ReportCatalogue.Find("employees")!;
+
+        Assert.Equal(
+            "salary",
+            ReportCatalogue.UnfilterableColumn(
+                ReportCatalogue.Visible(employees, Holding(employees.Module), isOwner: false),
+                new Dictionary<string, string?> { ["salary"] = "50000" }));
+    }
+
+    private static AccessLevelPermissions Holding(params string[] modules) => new()
     {
         Modules =
         [
-            new ModulePermission
+            .. modules.Select(module => new ModulePermission
             {
                 Module = module,
                 Access = true,
                 Actions = [PermissionAction.View],
-            },
+            }),
         ],
         Scope = new DataScope { Kind = DataScopeKind.All },
     };

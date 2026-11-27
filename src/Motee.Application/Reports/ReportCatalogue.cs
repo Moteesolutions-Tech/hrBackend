@@ -47,6 +47,19 @@ public sealed record ReportColumn
     // offering a filter the service has to apply in memory would be a filter that
     // works on a hundred rows and times out on a hundred thousand.
     public bool Filterable { get; init; }
+
+    // A column needing its own permission on top of the dataset's, or null for the
+    // ordinary case.
+    //
+    // Pay is why this exists. The reports screen declares an "Annual Salary" column on
+    // a report gated by organization.employees, which as specified means anybody who
+    // can open the staff list can read everyone's pay. Salary is recorded on the
+    // contract, so the permission that governs reading it is operations.contracts.
+    //
+    // The column is dropped and the rows are kept. A manager without contract access
+    // should still get their team's roster — refusing the whole report would be worse,
+    // and returning the column blank would read as "everybody earns nothing".
+    public string? RequiresModule { get; init; }
 }
 
 public sealed record ReportDataset
@@ -87,21 +100,45 @@ public static class ReportCatalogue
             Label = "Employees / Headcount",
             Group = People,
             Module = "organization.employees",
+            // Keyed to match the reports screen's own row shape — EmpRow in
+            // src/lib/reports/registry/people.ts — because five of its reports read
+            // this one dataset (the roster, Gender Split, Age Demographics, Department
+            // Breakdown and Hiring Trend) and compute their charts in the browser from
+            // these fields. A field missing here is not a narrower table; it is a graph
+            // that renders empty.
             Columns =
             [
                 Text("employeeNumber", "Employee ID"),
-                Text("name", "Name", filterable: true),
+                Text("fullName", "Name", filterable: true),
                 Text("email", "Email"),
                 Text("phone", "Phone"),
                 Text("jobTitle", "Job Title", filterable: true),
                 Text("department", "Department", filterable: true),
                 Text("employmentType", "Employment Type", filterable: true),
+                Text("grade", "Grade", filterable: true),
+                Text("gender", "Gender", filterable: true),
                 Text("workMode", "Work Mode", filterable: true),
                 Text("workLocation", "Work Location"),
+
+                // The branch's own region, falling back to its city and then to the
+                // employee's free-text work location, matching the screen's chain.
+                Text("region", "Region"),
                 Text("manager", "Manager"),
                 Number("directReports", "Direct Reports"),
+
+                // Derived against the tenant's own today rather than stored, so a
+                // birthday does not need a nightly job to be true. Not filterable:
+                // narrowing on an age means narrowing on a date of birth window, and
+                // that is a filter the screen does not offer either.
+                Number("age", "Age"),
+                Number("tenureYears", "Tenure (yrs)"),
                 Date("startDate", "Start Date", filterable: true),
                 Text("status", "Status", filterable: true),
+
+                // Recorded on the contract, so gated on reading contracts. Not
+                // filterable even for those who can see it: a filterable hidden column
+                // leaks by halves, and one that is visible has no need of it here.
+                Money("salary", "Annual Salary", "operations.contracts"),
             ],
         },
 
@@ -157,33 +194,56 @@ public static class ReportCatalogue
     // saved report naming a column that has since gone should still run, minus that
     // column, rather than becoming unopenable.
     public static IReadOnlyList<ReportColumn> Resolve(
-        ReportDataset dataset,
+        IReadOnlyList<ReportColumn> offered,
         IReadOnlyList<string>? keys)
     {
         if (keys is null || keys.Count == 0)
         {
-            return dataset.Columns;
+            return offered;
         }
 
         List<ReportColumn> selected =
         [
             .. keys
-                .Select(key => dataset.Columns.FirstOrDefault(column =>
+                .Select(key => offered.FirstOrDefault(column =>
                     string.Equals(column.Key, key, StringComparison.OrdinalIgnoreCase)))
                 .OfType<ReportColumn>(),
         ];
 
         // Asking only for columns that no longer exist would otherwise produce a table
         // with no columns at all.
-        return selected.Count == 0 ? dataset.Columns : selected;
+        return selected.Count == 0 ? offered : selected;
     }
+
+    // The columns this caller may see, which is not always every column the dataset
+    // declares. Resolve and UnfilterableColumn both take a column list rather than a
+    // dataset so that they run over this, and a call site cannot forget the gate by
+    // reaching for dataset.Columns.
+    public static IReadOnlyList<ReportColumn> Visible(
+        ReportDataset dataset,
+        AccessLevelPermissions? held,
+        bool isOwner) =>
+        [.. dataset.Columns.Where(column => CanSee(column, held, isOwner))];
+
+    // Same bar as CanRead, for the same reason: the self-service floor grants every
+    // signed-in employee View at Self scope on several modules, operations.contracts
+    // among them. Seeing your own contract is not permission to read the team's pay.
+    private static bool CanSee(ReportColumn column, AccessLevelPermissions? held, bool isOwner) =>
+        column.RequiresModule is not string module
+        || isOwner
+        || AccessDecision.Resolve(held, module, PermissionAction.View).Kind > DataScopeKind.Self;
 
     // A filter naming a column that is not filterable, or not in the dataset at all, is
     // refused rather than ignored. Dropping it silently would answer a different
     // question from the one asked — and a report that quietly ignores "department =
     // Engineering" is worse than one that refuses it.
+    //
+    // Takes the visible columns, not the dataset's: a filter over a column the caller
+    // cannot see leaks it by halves — narrow on salary above 50,000, count the rows,
+    // repeat — so a hidden column is "not filterable" rather than "filterable but
+    // invisible".
     public static string? UnfilterableColumn(
-        ReportDataset dataset,
+        IReadOnlyList<ReportColumn> offered,
         IReadOnlyDictionary<string, string?>? filters)
     {
         if (filters is null)
@@ -193,7 +253,7 @@ public static class ReportCatalogue
 
         foreach (string key in filters.Keys)
         {
-            ReportColumn? column = dataset.Columns.FirstOrDefault(candidate =>
+            ReportColumn? column = offered.FirstOrDefault(candidate =>
                 string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase));
 
             if (column is null || !column.Filterable)
@@ -255,6 +315,16 @@ public static class ReportCatalogue
 
     private static ReportColumn Date(string key, string header, bool filterable = false) =>
         new() { Key = key, Header = header, Kind = ReportColumnKind.Date, Filterable = filterable };
+
+    // An amount, behind its own permission. Never filterable: see RequiresModule.
+    private static ReportColumn Money(string key, string header, string requiresModule) =>
+        new()
+        {
+            Key = key,
+            Header = header,
+            Kind = ReportColumnKind.Number,
+            RequiresModule = requiresModule,
+        };
 
     private static ReportColumn Boolean(string key, string header, bool filterable = false) =>
         new()
