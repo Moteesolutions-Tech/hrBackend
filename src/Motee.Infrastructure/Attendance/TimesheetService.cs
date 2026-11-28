@@ -171,15 +171,21 @@ internal sealed class TimesheetService(
 
     public async Task<TimesheetDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         Timesheet? sheet = await dbContext.Timesheets
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return sheet is null
-            ? null
-            : await DescribeAsync(sheet, sheet.EmployeeId, sheet.WeekStart, cancellationToken);
+        // Out of reach reads as not found. See IContractService.GetAsync.
+        if (sheet is null
+            || !await reach.ReachesAsync(viewer, sheet.EmployeeId, cancellationToken))
+        {
+            return null;
+        }
+
+        return await DescribeAsync(sheet, sheet.EmployeeId, sheet.WeekStart, cancellationToken);
     }
 
     public Task<TimesheetResult> ApproveAsync(

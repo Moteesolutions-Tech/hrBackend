@@ -270,6 +270,7 @@ internal sealed class ApprovalTemplateService(
                     ? steps[index].RoleId
                     : null,
                 Required = steps[index].Required,
+                RequiresSignature = steps[index].RequiresSignature,
             });
         }
     }
@@ -330,6 +331,7 @@ internal sealed class ApprovalTemplateService(
                     .Select(level => level.Name)
                     .FirstOrDefault(),
                 Required = step.Required,
+                RequiresSignature = step.RequiresSignature,
             })
             .ToListAsync(cancellationToken);
 

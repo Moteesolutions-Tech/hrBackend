@@ -20,7 +20,12 @@ public interface ILeaveRequestService
         Viewer viewer,
         CancellationToken cancellationToken = default);
 
-    Task<LeaveRequestDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // Narrowed to what the viewer reaches. See IContractService.GetAsync for why a
+    // by-id read needs this as much as the register does.
+    Task<LeaveRequestDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     Task<LeaveRequestResult> SubmitAsync(
         LeaveRequestSubmission request,

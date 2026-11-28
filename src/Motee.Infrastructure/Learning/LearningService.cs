@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Learning;
 using Motee.Application.Tenancy;
+using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Domain.Learning;
 using Motee.Infrastructure.Common;
@@ -21,6 +22,7 @@ internal sealed class LearningService(
     ICurrentTenant currentTenant,
     ICurrentEmployee currentEmployee,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : ILearningService
 {
     private readonly TenantCalendar _calendar = new(dbContext, currentTenant, timeProvider);
@@ -382,10 +384,19 @@ internal sealed class LearningService(
 
     public async Task<PagedResult<EnrollmentDto>> EnrollmentsAsync(
         EnrollmentQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         IQueryable<CourseEnrollment> enrollments =
             dbContext.CourseEnrollments.AsNoTracking();
+
+        // Before the caller's own filters: reach is not something a filter can widen.
+        if (!viewer.ReachesEveryone)
+        {
+            IQueryable<Guid> reachable = reach.IdsOf(viewer);
+
+            enrollments = enrollments.Where(row => reachable.Contains(row.EmployeeId));
+        }
 
         if (query.CourseId is Guid courseId)
         {

@@ -71,7 +71,7 @@ public class PerformanceGoalsController(IPerformanceGoalService goals) : ApiCont
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        PerformanceGoalDto? goal = await goals.GetAsync(id, cancellationToken);
+        PerformanceGoalDto? goal = await goals.GetAsync(id, Caller(), cancellationToken);
 
         return goal is null
             ? Failure<PerformanceGoalDto>(MoteeStatusCodes.NotFound, "Goal not found.")

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Approvals;
 using Motee.Domain.Common;
@@ -218,7 +219,7 @@ public class ApprovalDelegationTests(PostgresFixture fixture)
                 .CancelAsync(delegationId));
 
         ApprovalDto approval = (await As<IApprovalService>(provider, _coverUserId)
-            .GetAsync(approvalId))!;
+            .GetAsync(approvalId, Viewer.Everything))!;
 
         ApprovalStepDto step = Assert.Single(approval.Steps);
 

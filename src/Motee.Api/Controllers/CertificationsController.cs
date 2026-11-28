@@ -33,9 +33,11 @@ public class CertificationsController(ICertificationService certifications)
         CancellationToken cancellationToken) =>
         Ok(await certifications.ListAsync(query, Caller(), cancellationToken));
 
+    // Company-wide figures, so more than your own records. See LearningController's
+    // summary for why this is gated rather than narrowed.
     [HttpGet("summary")]
     [ProducesResponseType<CertTally>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> Summary(
         [FromQuery] CertificationQuery query,
         CancellationToken cancellationToken) =>

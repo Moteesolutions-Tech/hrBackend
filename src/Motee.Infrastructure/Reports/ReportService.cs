@@ -160,6 +160,7 @@ internal sealed class ReportService(
                         .Select(column => column.Key),
                 ],
                 Filters = request.Filters,
+                Format = request.Format,
                 Scope = resolved.Scope,
                 ViewerEmployeeId = await currentEmployee.IdAsync(cancellationToken),
             },

@@ -79,6 +79,10 @@ public sealed record ReportExportRequest
     public IReadOnlyList<string>? Columns { get; init; }
 
     public IReadOnlyDictionary<string, string?>? Filters { get; init; }
+
+    // CSV unless asked otherwise, which is what every client sending no format today
+    // already gets.
+    public ReportExportFormat Format { get; init; } = ReportExportFormat.Csv;
 }
 
 public sealed record ReportExportResult

@@ -26,11 +26,18 @@ internal sealed class LeaveBalanceService(
         return balances.FirstOrDefault();
     }
 
-    public async Task<IReadOnlyList<LeaveBalanceDto>> ForEmployeeAsync(
+    public async Task<IReadOnlyList<LeaveBalanceDto>?> ForEmployeeAsync(
+        Viewer viewer,
         Guid employeeId,
         DateOnly? asAt = null,
         CancellationToken cancellationToken = default) =>
-        await BuildAsync([employeeId], null, asAt, cancellationToken);
+
+        // Null for somebody out of reach. Keyed by employee id rather than a record id,
+        // which made this the same hole with a different key: an ordinary employee
+        // could read any colleague's entitlement and what they had left.
+        await reach.ReachesAsync(viewer, employeeId, cancellationToken)
+            ? await BuildAsync([employeeId], null, asAt, cancellationToken)
+            : null;
 
     public async Task<PagedResult<LeaveBalanceDto>> ListAsync(
         LeaveBalanceQuery query,

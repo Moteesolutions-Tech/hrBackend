@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Motee.Domain.Authorization;
 using Motee.Domain.Employees;
 using Motee.Infrastructure.Persistence;
@@ -83,4 +84,26 @@ internal sealed class EmployeeReach(MoteeDbContext dbContext)
         };
 
     public IQueryable<Guid> IdsOf(Viewer viewer) => Of(viewer).Select(employee => employee.Id);
+
+    // Whether one particular employee is within reach.
+    //
+    // For reading a single record by its id, which is where this class's other half was
+    // missing. Closing the registers left every by-id read open: an ordinary employee
+    // held the module permission and GET /contracts/{id} did no narrowing at all, so a
+    // colleague's contract — salary included — came back to anybody who had the id.
+    // "Hard to guess" is not an access rule; ids travel in links, logs and other
+    // endpoints' responses.
+    public async Task<bool> ReachesAsync(
+        Viewer viewer,
+        Guid employeeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (viewer.ReachesEveryone)
+        {
+            return true;
+        }
+
+        return await Of(viewer)
+            .AnyAsync(employee => employee.Id == employeeId, cancellationToken);
+    }
 }

@@ -55,7 +55,7 @@ public class LeaveController(
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        LeaveRequestDto? request = await requests.GetAsync(id, cancellationToken);
+        LeaveRequestDto? request = await requests.GetAsync(id, Caller(), cancellationToken);
 
         return request is null
             ? Failure<LeaveRequestDto>(MoteeStatusCodes.NotFound, "Leave request not found.")

@@ -326,7 +326,7 @@ public class TimesheetServiceTests(PostgresFixture fixture)
         // HR corrects the day after it was signed off.
         await WorkAsync(provider, monday, new TimeOnly(20, 0));
 
-        TimesheetDto after = (await timesheets.GetAsync(id))!;
+        TimesheetDto after = (await timesheets.GetAsync(id, Viewer.Everything))!;
 
         Assert.Equal(12m, after.TotalHours);
 

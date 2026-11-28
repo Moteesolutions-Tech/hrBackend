@@ -56,7 +56,7 @@ public class ContractsController(IContractService contracts) : ApiControllerBase
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        ContractDto? contract = await contracts.GetAsync(id, cancellationToken);
+        ContractDto? contract = await contracts.GetAsync(id, Caller(), cancellationToken);
 
         return contract is null
             ? Failure<ContractDto>(MoteeStatusCodes.NotFound, "Contract not found.")

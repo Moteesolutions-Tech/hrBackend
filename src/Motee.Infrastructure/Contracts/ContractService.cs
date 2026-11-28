@@ -101,13 +101,24 @@ internal sealed class ContractService(
 
     public async Task<ContractDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         Contract? contract = await dbContext.Contracts
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return contract is null ? null : (await DescribeAsync([contract], cancellationToken))[0];
+        // Null for a contract belonging to somebody out of reach, which the endpoint
+        // answers as not found — the same answer as an id that does not exist, because
+        // telling somebody a contract exists but is none of their business is itself a
+        // fact about that person.
+        if (contract is null
+            || !await reach.ReachesAsync(viewer, contract.EmployeeId, cancellationToken))
+        {
+            return null;
+        }
+
+        return (await DescribeAsync([contract], cancellationToken))[0];
     }
 
     public async Task<IReadOnlyList<ContractDto>> MineAsync(

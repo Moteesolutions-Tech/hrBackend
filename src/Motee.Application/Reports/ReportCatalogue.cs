@@ -146,16 +146,23 @@ public static class ReportCatalogue
         {
             Key = "leave",
             Label = "Leave",
-            Group = Operations,
+
+            // People, not Operations: the reports screen groups leave with the
+            // workforce reports, and a dataset in the wrong group lands on the wrong
+            // tab.
+            Group = People,
             Module = "time-payroll.leave",
+
+            // Keyed to the screen's LeaveRow — employee, type, days — with the extra
+            // columns it does not read left in for whoever builds a custom report.
             Columns =
             [
-                Text("employeeName", "Employee", filterable: true),
+                Text("employee", "Employee", filterable: true),
                 Text("department", "Department", filterable: true),
-                Text("leaveType", "Leave Type", filterable: true),
+                Text("type", "Leave Type", filterable: true),
                 Date("startDate", "From", filterable: true),
                 Date("endDate", "To"),
-                Number("totalDays", "Days"),
+                Number("days", "Days"),
                 Boolean("isHalfDay", "Half Day"),
                 Text("status", "Status", filterable: true),
                 Text("reason", "Reason"),
@@ -165,19 +172,90 @@ public static class ReportCatalogue
 
         new ReportDataset
         {
+            Key = "attendance",
+            Label = "Attendance",
+            Group = People,
+            Module = "time-payroll.attendance",
+
+            // Keyed to AttRow. Hours is the worked figure rather than scheduled: the
+            // screen's question is how long people were actually here.
+            Columns =
+            [
+                Date("date", "Date", filterable: true),
+                Text("employee", "Employee", filterable: true),
+                Text("department", "Department", filterable: true),
+                Text("status", "Status", filterable: true),
+                Text("clockIn", "Clock In"),
+                Text("clockOut", "Clock Out"),
+                Number("hours", "Hours"),
+            ],
+        },
+
+        new ReportDataset
+        {
+            Key = "performance",
+            Label = "Performance",
+            Group = Talent,
+            Module = "talent.performance",
+
+            // Keyed to ReviewRow. The three ratings are the point of the report: self,
+            // manager and the calibrated figure a moderation meeting settled on.
+            Columns =
+            [
+                Text("employee", "Employee", filterable: true),
+                Text("department", "Department", filterable: true),
+                Text("cycle", "Cycle", filterable: true),
+                Number("self", "Self"),
+                Number("manager", "Manager"),
+                Number("calibrated", "Calibrated"),
+                Text("status", "Status", filterable: true),
+                Date("completedAt", "Completed"),
+            ],
+        },
+
+        new ReportDataset
+        {
+            Key = "learning",
+            Label = "Learning",
+            Group = Talent,
+            Module = "talent.training",
+
+            // Keyed to EnrolRow. Category is the course's, carried onto the enrolment
+            // so a completion-by-category chart needs no second read.
+            Columns =
+            [
+                Text("employee", "Employee", filterable: true),
+                Text("course", "Course", filterable: true),
+                Text("category", "Category"),
+                Text("status", "Status", filterable: true),
+                Number("progress", "Progress"),
+                Date("enrolledAt", "Enrolled"),
+                Boolean("mandatory", "Mandatory"),
+            ],
+        },
+
+        new ReportDataset
+        {
             Key = "assets",
             Label = "Assets",
             Group = Operations,
             Module = "operations.assets",
+            // Keyed to match the reports screen's AssetRow, which charts the condition
+            // breakdown and totals the value.
             Columns =
             [
-                Text("tag", "Tag", filterable: true),
+                Text("assetTag", "Tag", filterable: true),
                 Text("name", "Asset"),
                 Text("category", "Category", filterable: true),
                 Text("serialNumber", "Serial Number"),
+                Text("condition", "Condition", filterable: true),
                 Text("assignedTo", "Assigned To", filterable: true),
                 Date("assignedDate", "Assigned On"),
                 Text("status", "Status", filterable: true),
+
+                // An asset's price is not personal data, so unlike an employee's pay
+                // this needs no permission of its own beyond the assets module.
+                Number("value", "Value"),
             ],
         },
     ];

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Motee.Application.Common;
 using Motee.Application.Documents;
+using Motee.Domain.Authorization;
 using Motee.Domain.Documents;
 using Motee.Infrastructure.Persistence;
 
@@ -10,6 +11,7 @@ internal sealed class DocumentService(
     MoteeDbContext dbContext,
     ICurrentEmployee currentEmployee,
     IRequestContext requestContext,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IDocumentService
 {
     public async Task<IReadOnlyList<FolderDto>> FoldersAsync(
@@ -215,13 +217,75 @@ internal sealed class DocumentService(
 
     public async Task<DocumentDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         HrDocument? document = await dbContext.HrDocuments
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return document is null ? null : (await DescribeAsync([document], cancellationToken))[0];
+        if (document is null || !await ReachesAsync(viewer, document, cancellationToken))
+        {
+            return null;
+        }
+
+        return (await DescribeAsync([document], cancellationToken))[0];
+    }
+
+    // Whether this viewer may read one document.
+    //
+    // A document is not an employee's record — HrDocument has no EmployeeId — so the
+    // employee-reach rule the other registers use does not apply on its own. It is a
+    // company artefact aimed at everybody, at named departments, or at named people.
+    //
+    // The department test is the interesting part. AssignedDepartmentIds is jsonb
+    // behind a value converter, which is why the document *list* cannot be narrowed in
+    // SQL — but that only blocks filtering. One row already loaded can be judged in
+    // memory, so a by-id read gets the rule the list cannot have.
+    private async Task<bool> ReachesAsync(
+        Viewer viewer,
+        HrDocument document,
+        CancellationToken cancellationToken)
+    {
+        if (viewer.ReachesEveryone)
+        {
+            return true;
+        }
+
+        // The staff handbook and anything else aimed at the whole company.
+        if (document.Assignment == AssignmentScope.Global)
+        {
+            return true;
+        }
+
+        if (viewer.EmployeeId is Guid me)
+        {
+            // Their own upload, whatever the review has decided — the same reason
+            // MineAsync includes rejected ones: somebody has to be able to read why.
+            if (document.UploadedByEmployeeId == me)
+            {
+                return true;
+            }
+
+            if (await dbContext.DocumentShares.AnyAsync(
+                    share => share.DocumentId == document.Id && share.EmployeeId == me,
+                    cancellationToken))
+            {
+                return true;
+            }
+        }
+
+        // Assigned to a department this viewer's scope names.
+        if (document.Assignment == AssignmentScope.Department
+            && viewer.Scope.DepartmentIds.Any(document.AssignedDepartmentIds.Contains))
+        {
+            return true;
+        }
+
+        // Filed by somebody within reach — a manager reading what their own team put
+        // up for review.
+        return document.UploadedByEmployeeId is Guid uploader
+            && await reach.ReachesAsync(viewer, uploader, cancellationToken);
     }
 
     public async Task<DocumentResult> CreateAsync(
@@ -577,13 +641,16 @@ internal sealed class DocumentService(
 
     public async Task<AcknowledgementReportDto?> AcknowledgementsAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         HrDocument? document = await dbContext.HrDocuments
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        if (document is null)
+        // Same rule as reading the document itself: this report names who has agreed to
+        // it and who has not, so it is no more readable than the thing it is about.
+        if (document is null || !await ReachesAsync(viewer, document, cancellationToken))
         {
             return null;
         }
@@ -911,6 +978,75 @@ internal sealed class DocumentService(
         Guid id,
         CancellationToken cancellationToken = default) =>
         await SetTrashedAsync(id, null, cancellationToken);
+
+    // What is in their bin.
+    //
+    // A separate read rather than a flag on MineAsync, because that list is "documents
+    // I can see" and a trashed one is not among them. Without this the bin was
+    // write-only: an employee could trash a document and then had no screen on which to
+    // find it, so RestoreMineAsync could not be reached at all.
+    //
+    // Their own uploads only. HR's filing is not theirs to bin, so it can never be
+    // here.
+    public async Task<IReadOnlyList<DocumentDto>> MyTrashAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (await currentEmployee.IdAsync(cancellationToken) is not Guid me)
+        {
+            return [];
+        }
+
+        List<HrDocument> trashed = await dbContext.HrDocuments
+            .AsNoTracking()
+            .Where(document =>
+                document.UploadedByEmployeeId == me
+                && document.TrashedAt != null)
+
+            // Most recently binned first: what somebody is looking for in a bin is
+            // usually what they have just put there by mistake.
+            .OrderByDescending(document => document.TrashedAt)
+            .ToListAsync(cancellationToken);
+
+        return await DescribeAsync(trashed, cancellationToken);
+    }
+
+    // Gone for good.
+    //
+    // Only from the bin: a document still in their drawer is deleted by trashing it
+    // first, so that one click cannot destroy something irrecoverably. The row goes
+    // rather than being marked, because "empty the bin" that leaves the rows behind is
+    // not what anybody means by it.
+    //
+    // The stored file is left alone. It is shared machinery — the same upload can back
+    // a document, an approval attachment and a profile change evidence — and reaping it
+    // belongs to whatever sweeps unreferenced files, not to one document's delete.
+    public async Task<DocumentResult> DeleteMineAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        (HrDocument? document, DocumentOutcome refusal) = await MineToActOnAsync(
+            id, cancellationToken);
+
+        if (document is null)
+        {
+            return DocumentResult.Failed(refusal);
+        }
+
+        if (document.TrashedAt is null)
+        {
+            return DocumentResult.Failed(DocumentOutcome.NotTrashed);
+        }
+
+        DocumentDto deleted = (await DescribeAsync([document], cancellationToken))[0];
+
+        dbContext.HrDocuments.Remove(document);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        // The deleted record, so a client can confirm what went rather than guess from
+        // an empty success.
+        return DocumentResult.Ok(deleted);
+    }
 
     private async Task<DocumentResult> SetTrashedAsync(
         Guid id,

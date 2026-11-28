@@ -105,7 +105,7 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        ApprovalDto? approval = await approvals.GetAsync(id, cancellationToken);
+        ApprovalDto? approval = await approvals.GetAsync(id, Caller(), cancellationToken);
 
         return approval is null
             ? Failure<ApprovalDto>(MoteeStatusCodes.NotFound, "Approval not found.")
@@ -121,7 +121,8 @@ public class ApprovalsController(IApprovalService approvals) : ApiControllerBase
         string subjectType,
         Guid subjectId,
         CancellationToken cancellationToken) =>
-        Ok(await approvals.ForSubjectAsync(subjectType, subjectId, cancellationToken));
+        Ok(await approvals.ForSubjectAsync(
+            subjectType, subjectId, Caller(), cancellationToken));
 
     // No permission attribute on purpose. The right to decide comes from being the person
     // the step resolved to, which the service checks — a module permission would let

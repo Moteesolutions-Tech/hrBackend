@@ -4,7 +4,9 @@ using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Motee.Application.Exports;
 using Motee.Application.Notifications;
+using Motee.Infrastructure.Exports;
 using Motee.Infrastructure.Notifications;
 
 namespace Motee.Api.Jobs;
@@ -38,8 +40,17 @@ internal static class HangfireSetup
         // RecurringJobRegistrar for why this is not done during startup.
         services.AddHostedService<RecurringJobRegistrar>();
 
-        // Replaces the inline queue registered by AddInfrastructure.
+        // Replaces the inline queues registered by AddInfrastructure.
+        //
+        // Both of them. The export one was written, documented as "Hangfire hosts the
+        // worker in the API", and then never registered — so every export ran inline,
+        // on a thread blocked by GetAwaiter().GetResult(), inside the HTTP request that
+        // asked for it. A large export tied up a request until it finished or the load
+        // balancer gave up, and a storage failure came back as a 500 rather than a
+        // queued job whose row records what went wrong. The response even promised an
+        // email that had already been sent by the time it arrived.
         services.Replace(ServiceDescriptor.Scoped<IEmailQueue, HangfireEmailQueue>());
+        services.Replace(ServiceDescriptor.Scoped<IExportQueue, HangfireExportQueue>());
 
         return services;
     }

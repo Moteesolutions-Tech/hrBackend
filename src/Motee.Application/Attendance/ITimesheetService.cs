@@ -29,7 +29,11 @@ public interface ITimesheetService
         Viewer viewer,
         CancellationToken cancellationToken = default);
 
-    Task<TimesheetDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // Narrowed to what the viewer reaches. See IContractService.GetAsync.
+    Task<TimesheetDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     Task<TimesheetResult> ApproveAsync(Guid id, CancellationToken cancellationToken = default);
 

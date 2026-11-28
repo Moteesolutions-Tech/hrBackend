@@ -194,13 +194,21 @@ internal sealed class PerformanceReviewService(
 
     public async Task<PerformanceReviewDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         PerformanceReview? review = await dbContext.PerformanceReviews
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return review is null ? null : (await DescribeAsync([review], cancellationToken))[0];
+        // Out of reach reads as not found. See IContractService.GetAsync.
+        if (review is null
+            || !await reach.ReachesAsync(viewer, review.EmployeeId, cancellationToken))
+        {
+            return null;
+        }
+
+        return (await DescribeAsync([review], cancellationToken))[0];
     }
 
     public async Task<ReviewResult> OpenAsync(

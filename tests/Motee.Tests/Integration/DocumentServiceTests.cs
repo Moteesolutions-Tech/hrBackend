@@ -5,6 +5,7 @@ using Motee.Application.Common;
 using Motee.Application.Documents;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
+using Motee.Domain.Authorization;
 using Motee.Domain.Documents;
 using Motee.Domain.Employees;
 using Motee.Domain.Files;
@@ -555,7 +556,8 @@ public class DocumentServiceTests(PostgresFixture fixture)
 
         await documents.AcknowledgeAsync(id);
 
-        AcknowledgementReportDto report = (await documents.AcknowledgementsAsync(id))!;
+        AcknowledgementReportDto report =
+            (await documents.AcknowledgementsAsync(id, Viewer.Everything))!;
 
         Assert.Equal(2, report.TotalAssigned);
         Assert.Equal("Bola Okafor", Assert.Single(report.Acknowledged).EmployeeName);
@@ -785,6 +787,116 @@ public class DocumentServiceTests(PostgresFixture fixture)
 
         Assert.True(restored.Succeeded, restored.Outcome.ToString());
         Assert.False(restored.Document!.IsTrashed);
+    }
+
+    // The bin needs a screen of its own. /documents/mine lists what the employee can
+    // see, and a binned document is deliberately not among them — so until this read
+    // existed, binning something hid it with no way back and RestoreMineAsync could not
+    // be reached at all.
+    [SkippableFact]
+    public async Task ABinnedUploadLeavesTheDrawerAndAppearsInTheBin()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        Assert.Contains(
+            id,
+            (await Resolve<IDocumentService>(provider).MineAsync()).Select(d => d.Id));
+
+        Assert.Empty(await Resolve<IDocumentService>(provider).MyTrashAsync());
+
+        Assert.True((await Resolve<IDocumentService>(provider).TrashMineAsync(id)).Succeeded);
+
+        Assert.DoesNotContain(
+            id,
+            (await Resolve<IDocumentService>(provider).MineAsync()).Select(d => d.Id));
+
+        DocumentDto binned = Assert.Single(
+            await Resolve<IDocumentService>(provider).MyTrashAsync());
+
+        Assert.Equal(id, binned.Id);
+        Assert.True(binned.IsTrashed);
+    }
+
+    // HR's filing is not theirs to bin, so it can never be in their bin either.
+    [SkippableFact]
+    public async Task TheBinHoldsOnlyTheirOwnUploads()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await UploadMineAsync(provider);
+
+        // Act as Cara, who uploaded nothing.
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            (await GiveAccountAsync(_colleagueId, "cara")).ToString();
+
+        Assert.Empty(await Resolve<IDocumentService>(provider).MyTrashAsync());
+    }
+
+    [SkippableFact]
+    public async Task AnEmployeeCanEmptyTheirOwnBin()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        Assert.True((await Resolve<IDocumentService>(provider).TrashMineAsync(id)).Succeeded);
+
+        DocumentResult deleted = await Resolve<IDocumentService>(provider).DeleteMineAsync(id);
+
+        Assert.True(deleted.Succeeded, deleted.Outcome.ToString());
+        Assert.Equal(id, deleted.Document!.Id);
+
+        Assert.Empty(await Resolve<IDocumentService>(provider).MyTrashAsync());
+
+        // Gone rather than hidden: a second delete finds nothing.
+        Assert.Equal(
+            DocumentOutcome.NotFound,
+            (await Resolve<IDocumentService>(provider).DeleteMineAsync(id)).Outcome);
+    }
+
+    // The bin is the step before, deliberately: one click must not destroy a document
+    // irrecoverably.
+    [SkippableFact]
+    public async Task AnUploadStillInTheDrawerCannotBeDeletedForGood()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        Assert.Equal(
+            DocumentOutcome.NotTrashed,
+            (await Resolve<IDocumentService>(provider).DeleteMineAsync(id)).Outcome);
+
+        // Still there, so the refusal cost nothing.
+        Assert.Contains(
+            id,
+            (await Resolve<IDocumentService>(provider).MineAsync()).Select(d => d.Id));
+    }
+
+    [SkippableFact]
+    public async Task AnEmployeeCannotDeleteAColleaguesUpload()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid id = await UploadMineAsync(provider);
+
+        Assert.True((await Resolve<IDocumentService>(provider).TrashMineAsync(id)).Succeeded);
+
+        provider.GetRequiredService<PostgresFixture.StubRequestContext>().UserId =
+            (await GiveAccountAsync(_colleagueId, "cara")).ToString();
+
+        // Not found rather than forbidden, matching the rest of self-service: telling
+        // them an id exists but is none of their business is itself a fact.
+        Assert.Equal(
+            DocumentOutcome.NotYours,
+            (await Resolve<IDocumentService>(provider).DeleteMineAsync(id)).Outcome);
     }
 
     [SkippableFact]

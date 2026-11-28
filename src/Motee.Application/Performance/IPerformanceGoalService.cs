@@ -31,7 +31,11 @@ public interface IPerformanceGoalService
         Viewer viewer,
         CancellationToken cancellationToken = default);
 
-    Task<PerformanceGoalDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // Narrowed to what the viewer reaches. See IContractService.GetAsync.
+    Task<PerformanceGoalDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     Task<GoalResult> CreateAsync(
         Guid employeeId,

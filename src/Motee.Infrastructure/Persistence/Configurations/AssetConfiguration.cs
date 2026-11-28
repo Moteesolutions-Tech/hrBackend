@@ -21,6 +21,12 @@ internal sealed class AssetConfiguration : IEntityTypeConfiguration<Asset>
         builder.Property(asset => asset.Notes).HasMaxLength(1000);
         builder.Property(asset => asset.Status).HasConversion<string>().HasMaxLength(20);
 
+        builder.Property(asset => asset.Condition).HasConversion<string>().HasMaxLength(20);
+
+        // Money, so a fixed scale rather than a float: two decimal places, and enough
+        // digits for a vehicle.
+        builder.Property(asset => asset.Value).HasPrecision(18, 2);
+
         builder.HasOne<Tenant>()
             .WithMany()
             .HasForeignKey(asset => asset.TenantId)

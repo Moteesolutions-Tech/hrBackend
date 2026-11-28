@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Domain.Approvals;
 using Motee.Domain.Common;
@@ -400,7 +401,8 @@ public class ApprovalEngineTests(PostgresFixture fixture)
             ],
         });
 
-        ApprovalDto running = (await As(provider, _managerUserId).GetAsync(id))!;
+        ApprovalDto running =
+            (await As(provider, _managerUserId).GetAsync(id, Viewer.Everything))!;
 
         Assert.Equal(2, running.Steps.Count);
         Assert.Equal("Line manager approval", running.Steps[0].Label);

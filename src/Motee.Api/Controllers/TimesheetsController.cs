@@ -61,7 +61,7 @@ public class TimesheetsController(ITimesheetService timesheets) : ApiControllerB
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        TimesheetDto? sheet = await timesheets.GetAsync(id, cancellationToken);
+        TimesheetDto? sheet = await timesheets.GetAsync(id, Caller(), cancellationToken);
 
         return sheet is null
             ? Failure<TimesheetDto>(MoteeStatusCodes.NotFound, "Timesheet not found.")

@@ -21,9 +21,25 @@ namespace Motee.Application.Reports;
 // The viewer's employee id travels too, because some scopes are relative to the holder:
 // DataScope.NeedsHolder is true for OwnDepartment and OwnBranch, and those mean nothing
 // without knowing whose department.
+// What file an export produces.
+//
+// Excel is deliberately absent: writing .xlsx needs a third-party library, and adding
+// one to the deployed image is a decision rather than a detail. CSV opens in Excel
+// meanwhile, which is what most people mean when they ask for it.
+public enum ReportExportFormat
+{
+    Csv,
+
+    // One JSON array, a record per row, keyed by column. For whoever is loading the
+    // export into something else rather than reading it.
+    Json,
+}
+
 public sealed record ReportExportFilters
 {
     public required string Dataset { get; init; }
+
+    public ReportExportFormat Format { get; init; } = ReportExportFormat.Csv;
 
     // Already resolved and already gated against the requester's permissions, not the
     // keys they asked for. Required and never empty, because an absent list means "every

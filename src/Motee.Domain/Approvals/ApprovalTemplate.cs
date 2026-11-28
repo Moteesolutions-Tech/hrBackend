@@ -91,6 +91,15 @@ public class ApprovalTemplateStep : ITenantScoped
     // A step that cannot be resolved to a person is skipped rather than blocking, when
     // it is optional. A required one stops the chain and says why.
     public bool Required { get; set; } = true;
+
+    // Whether approving this step needs a drawn signature as well as a decision.
+    //
+    // Off by default, because most steps are a judgement rather than an execution: a
+    // line manager agreeing to a laptop is a click. It is the steps that stand in for
+    // putting a name to something — a contract countersigned, a disciplinary outcome
+    // recorded — where the signature is the point, and where approving without one
+    // would leave the record unable to say who committed to it.
+    public bool RequiresSignature { get; set; }
 }
 
 // One run of a template against one thing — this employee's onboarding, that leave
@@ -190,6 +199,10 @@ public class ApprovalStepInstance : ITenantScoped
     public Guid? RoleId { get; set; }
 
     public bool Required { get; set; }
+
+    // Snapshotted with the rest of the step, so an admin turning the requirement on
+    // does not retrospectively invalidate an approval already given without one.
+    public bool RequiresSignature { get; set; }
 
     // Who it actually landed on, worked out at submission. Null when nobody could be
     // found — an employee with no manager recorded, a department with no head — and also

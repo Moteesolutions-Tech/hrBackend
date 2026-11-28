@@ -22,7 +22,15 @@ public interface ILeaveBalanceService
 
     // One person, every type they have entitlement to — the employee's own balance
     // screen.
-    Task<IReadOnlyList<LeaveBalanceDto>> ForEmployeeAsync(
+    // One person's balances, or null when that person is out of the viewer's reach —
+    // which the endpoint answers as not found, like every other by-id read.
+    //
+    // Null rather than an empty list on purpose: empty already means "reachable, but
+    // no entitlement recorded", and collapsing the two would leave HR unable to tell
+    // a new joiner with no policy from an employee who is none of their business.
+    // The self-service route passes Viewer.Themselves.
+    Task<IReadOnlyList<LeaveBalanceDto>?> ForEmployeeAsync(
+        Viewer viewer,
         Guid employeeId,
         DateOnly? asAt = null,
         CancellationToken cancellationToken = default);

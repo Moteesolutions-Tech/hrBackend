@@ -1,4 +1,5 @@
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Documents;
 
 namespace Motee.Application.Documents;
@@ -46,7 +47,17 @@ public interface IDocumentService
         DocumentQuery query,
         CancellationToken cancellationToken = default);
 
-    Task<DocumentDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // One document, or null when this viewer may not read it — which the endpoint
+    // answers as not found.
+    //
+    // A document is reachable when it is aimed at everybody, shared with the viewer,
+    // assigned to a department their scope names, uploaded by them, or uploaded by
+    // somebody within their reach. The department test works here even though it
+    // cannot work on the list: see the implementation.
+    Task<DocumentDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     // The file is uploaded first, through the files endpoint, and its id handed
     // here. Keeping the two apart means a large upload that fails does not take a
@@ -135,6 +146,14 @@ public interface IDocumentService
 
     Task<DocumentResult> RestoreMineAsync(Guid id, CancellationToken cancellationToken = default);
 
+    // What is in their bin. Needed because /documents/mine lists what they can see, and
+    // a trashed document is not among them — so without this the bin was write-only and
+    // RestoreMineAsync could not be reached from any screen.
+    Task<IReadOnlyList<DocumentDto>> MyTrashAsync(CancellationToken cancellationToken = default);
+
+    // Gone for good, and only from the bin. Their own uploads only.
+    Task<DocumentResult> DeleteMineAsync(Guid id, CancellationToken cancellationToken = default);
+
     // ── HR's review queue ───────────────────────────────────────────────────
 
     // Self-service uploads waiting to be looked at, oldest first: a queue is worked
@@ -163,9 +182,12 @@ public interface IDocumentService
         Guid id,
         CancellationToken cancellationToken = default);
 
-    // Who has agreed and who has not, for the documents that require it.
+    // Who has agreed and who has not, for the documents that require it. Narrowed by
+    // the same rule as reading the document: the report names people, so it is no more
+    // readable than the thing it is about.
     Task<AcknowledgementReportDto?> AcknowledgementsAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 }
 
@@ -455,6 +477,10 @@ public enum DocumentOutcome
     // and not to bin — and a folder belonging to another employee. The same answer to
     // each, because telling them apart would say whose it is.
     NotYours,
+
+    // Deleting for good something that is still in the drawer. The bin is the step
+    // before, deliberately: one click should not destroy a document irrecoverably.
+    NotTrashed,
 
     // Already accepted or refused. A second decision would record two people ruling
     // on one upload.

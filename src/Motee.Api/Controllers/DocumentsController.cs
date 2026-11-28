@@ -129,6 +129,23 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
     public async Task<IActionResult> RestoreMine(Guid id, CancellationToken cancellationToken) =>
         RespondMine(await documents.RestoreMineAsync(id, cancellationToken), "Document restored.");
 
+    // Their bin. A separate read because GET mine lists what they can see, and a binned
+    // document is not among them — so without this, restore above had no screen to be
+    // reached from.
+    [HttpGet("mine/trash")]
+    [RequiresEmployee]
+    [ProducesResponseType<IReadOnlyList<DocumentDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> MyTrash(CancellationToken cancellationToken) =>
+        Ok(await documents.MyTrashAsync(cancellationToken));
+
+    // Gone for good, and only from the bin: a document still in the drawer has to be
+    // binned first, so one click cannot destroy it irrecoverably.
+    [HttpDelete("mine/{id:guid}")]
+    [RequiresEmployee]
+    [ProducesResponseType<DocumentDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> DeleteMine(Guid id, CancellationToken cancellationToken) =>
+        RespondMine(await documents.DeleteMineAsync(id, cancellationToken), "Document deleted.");
+
     // ── HR's review queue ───────────────────────────────────────────────────
     //
     // Behind Edit rather than View: accepting an upload files it onto somebody's record,
@@ -177,9 +194,11 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
 
     // ── folders ─────────────────────────────────────────────────────────────
 
+    // HR's folder tree, which is the shape of the company's filing rather than
+    // anybody's own drawer. Their own folders are documents/mine/folders.
     [HttpGet("folders")]
     [ProducesResponseType<IReadOnlyList<FolderDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> Folders(CancellationToken cancellationToken) =>
         Ok(await documents.FoldersAsync(cancellationToken));
 
@@ -242,7 +261,7 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        DocumentDto? document = await documents.GetAsync(id, cancellationToken);
+        DocumentDto? document = await documents.GetAsync(id, Caller(), cancellationToken);
 
         return document is null
             ? Failure<DocumentDto>(MoteeStatusCodes.NotFound, "Document not found.")
@@ -339,7 +358,7 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
         CancellationToken cancellationToken)
     {
         AcknowledgementReportDto? report =
-            await documents.AcknowledgementsAsync(id, cancellationToken);
+            await documents.AcknowledgementsAsync(id, Caller(), cancellationToken);
 
         return report is null
             ? Failure<AcknowledgementReportDto>(
@@ -400,6 +419,11 @@ public class DocumentsController(IDocumentService documents) : ApiControllerBase
         // to read and not to bin, and a folder belonging to a colleague is none of
         // their business — including the fact that it exists.
         DocumentOutcome.NotYours => "That is not yours to change.",
+
+        // Names the step they have missed rather than just refusing, because the fix is
+        // one action away and nothing about the request was malformed.
+        DocumentOutcome.NotTrashed =>
+            "Move it to the bin before deleting it for good.",
         DocumentOutcome.AlreadyReviewed => "That upload has already been decided.",
         DocumentOutcome.NotAwaitingReview =>
             "That document was filed by HR, so there is nothing to review.",

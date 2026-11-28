@@ -19,6 +19,7 @@ internal sealed class ApprovalService(
     // the positional resolvers need — "their line manager", "the head of their
     // department". A module-driven chain passes its own subject instead.
     ICurrentEmployee currentEmployee,
+    Authorization.EmployeeReach reach,
     TimeProvider timeProvider) : IApprovalService
 {
     public async Task<ApprovalResult> StartAsync(
@@ -131,28 +132,106 @@ internal sealed class ApprovalService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return ApprovalResult.Ok((await GetAsync(instance.Id, cancellationToken))!);
+        // Reading back the instance this call just created. Everything here is internal
+        // machinery: whoever reached this line was already allowed to start it, and
+        // narrowing again would turn a successful submission into an empty one.
+        return ApprovalResult.Ok(
+            (await GetAsync(instance.Id, Viewer.Everything, cancellationToken))!);
     }
 
-    public async Task<ApprovalDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<ApprovalDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default)
     {
         ApprovalInstance? instance = await dbContext.ApprovalInstances
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return instance is null ? null : await ProjectAsync(instance, cancellationToken);
+        if (instance is null || !await ReachesAsync(viewer, instance, cancellationToken))
+        {
+            return null;
+        }
+
+        return await ProjectAsync(instance, cancellationToken);
+    }
+
+    // Whether this viewer may read one approval.
+    //
+    // Not the employee-reach rule on its own, and this is the case that makes the
+    // difference: an approval chain exists precisely so that somebody outside your team
+    // can ask you to agree to something. Narrowing only by the subject would hide a
+    // request from the very person being asked to decide it, and their queue would list
+    // items they could not open.
+    //
+    // So three ways in, any one of which is enough: they raised it, they are asked to
+    // decide it, or the person it is about is within their reach.
+    private async Task<bool> ReachesAsync(
+        Viewer viewer,
+        ApprovalInstance instance,
+        CancellationToken cancellationToken)
+    {
+        if (viewer.ReachesEveryone)
+        {
+            return true;
+        }
+
+        if (CurrentUser() is Guid actor)
+        {
+            // Their own request.
+            if (instance.SubmittedByUserId == actor)
+            {
+                return true;
+            }
+
+            // Asked to decide it, on this step or an earlier one — an approver has to be
+            // able to re-read what they already signed off.
+            List<ApprovalStepInstance> steps = await dbContext.ApprovalStepInstances
+                .AsNoTracking()
+                .Where(step => step.InstanceId == instance.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (ApprovalStepInstance step in steps)
+            {
+                if (await CanActAsync(step, actor, cancellationToken))
+                {
+                    return true;
+                }
+            }
+        }
+
+        // HR reading their own department's requests. An instance with no subject
+        // employee and none of the above falls through to refused, which is the safe
+        // way to be wrong.
+        return instance.SubjectEmployeeId is Guid subject
+            && await reach.ReachesAsync(viewer, subject, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ApprovalDto>> ForSubjectAsync(
         string subjectType,
         Guid subjectId,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
-        List<ApprovalInstance> instances = await dbContext.ApprovalInstances
+        List<ApprovalInstance> all = await dbContext.ApprovalInstances
             .AsNoTracking()
             .Where(instance => instance.SubjectType == subjectType && instance.SubjectId == subjectId)
             .OrderByDescending(instance => instance.CreatedAt)
             .ToListAsync(cancellationToken);
+
+        // Narrowed one at a time by the same three-way rule as reading one, because the
+        // rule cannot be expressed as a filter: "is this viewer an approver on it"
+        // depends on role membership read live. The set is one subject's approvals,
+        // so it is small.
+        List<ApprovalInstance> instances = [];
+
+        foreach (ApprovalInstance candidate in all)
+        {
+            if (await ReachesAsync(viewer, candidate, cancellationToken))
+            {
+                instances.Add(candidate);
+            }
+        }
 
         List<ApprovalDto> results = [];
 
@@ -419,6 +498,18 @@ internal sealed class ApprovalService(
             }
         }
 
+        // A step that asks to be signed cannot be approved without one. Only on an
+        // approval: a rejection is not signed, so requiring a signature to refuse
+        // something would leave an unsignable step with no way out.
+        if (step.RequiresSignature
+            && decision == ApprovalStepStatus.Approved
+            && signatureFileId is null)
+        {
+            return ApprovalResult.Failed(
+                ApprovalOutcome.SignatureRequired,
+                "This step has to be signed before it can be approved.");
+        }
+
         DateTimeOffset now = timeProvider.GetUtcNow();
 
         step.Status = decision;
@@ -454,7 +545,8 @@ internal sealed class ApprovalService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        ApprovalDto decided = (await GetAsync(id, cancellationToken))!;
+        // A read-back of the row this call just decided.
+        ApprovalDto decided = (await GetAsync(id, Viewer.Everything, cancellationToken))!;
 
         await NotifyAsync(decided, cancellationToken);
 
@@ -759,7 +851,7 @@ internal sealed class ApprovalService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return ApprovalResult.Ok((await GetAsync(id, cancellationToken))!);
+        return ApprovalResult.Ok((await GetAsync(id, Viewer.Everything, cancellationToken))!);
     }
 
     public async Task<ApprovalResult> CancelAsync(
@@ -791,7 +883,7 @@ internal sealed class ApprovalService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return ApprovalResult.Ok((await GetAsync(id, cancellationToken))!);
+        return ApprovalResult.Ok((await GetAsync(id, Viewer.Everything, cancellationToken))!);
     }
 
     // Snapshots the template into the run and works out who each step lands on.
@@ -940,7 +1032,7 @@ internal sealed class ApprovalService(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return ApprovalResult.Ok((await GetAsync(id, cancellationToken))!);
+        return ApprovalResult.Ok((await GetAsync(id, Viewer.Everything, cancellationToken))!);
     }
 
     // Asks again for every pending step with nobody behind it, and reports how many found
@@ -1004,6 +1096,7 @@ internal sealed class ApprovalService(
                 Approver = template.Approver,
                 RoleId = template.RoleId,
                 Required = template.Required,
+                RequiresSignature = template.RequiresSignature,
                 Status = ApprovalStepStatus.Pending,
             };
 
@@ -1126,6 +1219,7 @@ internal sealed class ApprovalService(
                 Label = step.Label,
                 Approver = step.Approver,
                 Required = step.Required,
+                RequiresSignature = step.RequiresSignature,
                 ResolvedEmployeeId = step.ResolvedEmployeeId,
 
                 // A person's name, or the access level's. One or the other is set, and a
@@ -1175,20 +1269,60 @@ internal sealed class ApprovalService(
             ];
         }
 
-        List<ApprovalEventDto> history = await dbContext.ApprovalEvents
+        List<ApprovalEvent> entries = await dbContext.ApprovalEvents
             .AsNoTracking()
             .Where(entry => entry.InstanceId == instance.Id)
             .OrderBy(entry => entry.At)
-            .Select(entry => new ApprovalEventDto
+            .ToListAsync(cancellationToken);
+
+        // The actor's name, resolved from the user id the event stored rather than read
+        // off the event's own ActorName column.
+        //
+        // That column was filled with the signed-in user's email address, so a timeline
+        // read "ada@acme.com approved this". Deriving the name here rather than
+        // correcting the write also fixes every exchange already recorded, which a new
+        // write would not — and a name that changes should change on the timeline too.
+        //
+        // Filtered by tenant explicitly: ApplicationUser is not ITenantScoped, so no
+        // query filter applies to it and an unfiltered read by id would reach another
+        // company's users.
+        List<Guid> actors =
+        [
+            .. entries
+                .Select(entry => entry.ActorUserId)
+                .OfType<Guid>()
+                .Distinct(),
+        ];
+
+        Dictionary<Guid, string> names = actors.Count == 0
+            ? []
+            : await dbContext.Users
+                .AsNoTracking()
+                .Where(user => user.TenantId == instance.TenantId && actors.Contains(user.Id))
+                .ToDictionaryAsync(
+                    user => user.Id,
+                    user => user.FirstName + " " + user.LastName,
+                    cancellationToken);
+
+        List<ApprovalEventDto> history =
+        [
+            .. entries.Select(entry => new ApprovalEventDto
             {
                 Id = entry.Id,
                 Type = entry.Type,
                 StepOrder = entry.StepOrder,
-                ActorName = entry.ActorName,
+
+                // The stored value is the fallback, not the answer: a deleted user, or
+                // an event recorded with no user behind it, still has to say something.
+                ActorName = entry.ActorUserId is Guid actor
+                    && names.TryGetValue(actor, out string? name)
+                    && !string.IsNullOrWhiteSpace(name)
+                        ? name
+                        : entry.ActorName,
                 Note = entry.Note,
                 At = entry.At,
-            })
-            .ToListAsync(cancellationToken);
+            }),
+        ];
 
         List<ApprovalAttachmentDto> attachments = await dbContext.ApprovalAttachments
             .AsNoTracking()

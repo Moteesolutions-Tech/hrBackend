@@ -46,10 +46,15 @@ internal sealed class LeaveRequestService(
 
     public async Task<LeaveRequestDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
+        // Narrowed in the same query rather than checked after: this one projects
+        // straight to the DTO, so there is no entity in hand to test. Out of reach
+        // comes back as nothing, which the endpoint answers as not found — and a leave
+        // reason is often medical, so this is the one that mattered most.
         List<LeaveRequestDto> found = await Project(
-                dbContext.LeaveRequests.Where(request => request.Id == id))
+                Narrow(dbContext.LeaveRequests.Where(request => request.Id == id), viewer))
             .Take(1)
             .ToListAsync(cancellationToken);
 
@@ -151,7 +156,12 @@ internal sealed class LeaveRequestService(
         booking.UpdatedAt = timeProvider.GetUtcNow();
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return LeaveRequestResult.Ok((await GetAsync(booking.Id, cancellationToken))!);
+        // Reading back the row this call just wrote, so the narrowing has already
+        // happened — whoever reached this line was allowed to change it. Narrowing
+        // again would mean a manager booking leave for somebody outside their scope
+        // got an empty success.
+        return LeaveRequestResult.Ok(
+            (await GetAsync(booking.Id, Viewer.Everything, cancellationToken))!);
     }
 
     public async Task<LeaveRequestResult> CancelAsync(
@@ -190,7 +200,9 @@ internal sealed class LeaveRequestService(
             await approvals.CancelAsync(instanceId, reason, cancellationToken);
         }
 
-        return LeaveRequestResult.Ok((await GetAsync(id, cancellationToken))!);
+        // As above: a read-back of the row this call just acted on.
+        return LeaveRequestResult.Ok(
+            (await GetAsync(id, Viewer.Everything, cancellationToken))!);
     }
 
     public async Task<LeaveQuoteDto> QuoteAsync(

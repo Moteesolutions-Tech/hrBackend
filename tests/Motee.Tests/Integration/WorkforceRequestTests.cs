@@ -205,7 +205,7 @@ public class WorkforceRequestTests(PostgresFixture fixture)
             }
 
             ApprovalDto chain = (await Resolve<IApprovalService>(provider)
-                .GetAsync(current.ApprovalInstanceId!.Value))!;
+                .GetAsync(current.ApprovalInstanceId!.Value, Viewer.Everything))!;
 
             ApprovalStepDto step = chain.CurrentStep
                 ?? throw new InvalidOperationException("Nothing to decide.");
@@ -450,7 +450,7 @@ public class WorkforceRequestTests(PostgresFixture fixture)
         WorkforceRequestDto sent = (await Workforce(provider).SubmitAsync(draft.Id)).Request!;
 
         ApprovalDto chain = (await Resolve<IApprovalService>(provider)
-            .GetAsync(sent.ApprovalInstanceId!.Value))!;
+            .GetAsync(sent.ApprovalInstanceId!.Value, Viewer.Everything))!;
 
         ActAs(provider, _caraUserId);
 
@@ -474,7 +474,7 @@ public class WorkforceRequestTests(PostgresFixture fixture)
         WorkforceRequestDto sent = (await Workforce(provider).SubmitAsync(draft.Id)).Request!;
 
         ApprovalDto chain = (await Resolve<IApprovalService>(provider)
-            .GetAsync(sent.ApprovalInstanceId!.Value))!;
+            .GetAsync(sent.ApprovalInstanceId!.Value, Viewer.Everything))!;
 
         ActAs(provider, _caraUserId);
         await Resolve<IApprovalService>(provider).DecideAsync(
@@ -510,7 +510,7 @@ public class WorkforceRequestTests(PostgresFixture fixture)
         Assert.Equal(WorkforceRequestStatus.Cancelled, withdrawn.Request!.Status);
 
         ApprovalDto chain = (await Resolve<IApprovalService>(provider)
-            .GetAsync(sent.ApprovalInstanceId!.Value))!;
+            .GetAsync(sent.ApprovalInstanceId!.Value, Viewer.Everything))!;
 
         Assert.Equal(ApprovalStatus.Cancelled, chain.Status);
     }

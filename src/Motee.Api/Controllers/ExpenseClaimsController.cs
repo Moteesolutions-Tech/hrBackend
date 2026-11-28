@@ -97,7 +97,7 @@ public class ExpenseClaimsController(IExpenseClaimService claims) : ApiControlle
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        ExpenseClaimDto? claim = await claims.GetAsync(id, cancellationToken);
+        ExpenseClaimDto? claim = await claims.GetAsync(id, Caller(), cancellationToken);
 
         return claim is null
             ? Failure<ExpenseClaimDto>(MoteeStatusCodes.NotFound, "Claim not found.")

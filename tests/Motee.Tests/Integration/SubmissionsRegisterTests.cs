@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Approvals;
 using Motee.Application.Common;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Domain.Common;
 using Motee.Application.Files;
 using Motee.Domain.Employees;
@@ -34,9 +35,10 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
     private Guid _managerUserId;
     private Guid _headId;
     private Guid _headUserId;
+    private Guid _outsiderId;
     private Guid _departmentId;
 
-    private async Task<ServiceProvider> ArrangeAsync()
+    private async Task<ServiceProvider> ArrangeAsync(bool requiresSignature = false)
     {
         await fixture.ResetAsync();
 
@@ -106,8 +108,8 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
 
         provider.GetRequiredService<PostgresFixture.MutableTenant>().TenantId = _tenantId;
 
-        await TemplateAsync(provider, ApprovalDocumentTypes.Onboarding);
-        await TemplateAsync(provider, ApprovalDocumentTypes.LeaveRequest);
+        await TemplateAsync(provider, ApprovalDocumentTypes.Onboarding, requiresSignature);
+        await TemplateAsync(provider, ApprovalDocumentTypes.LeaveRequest, requiresSignature);
 
         return provider;
     }
@@ -147,7 +149,10 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
         });
     }
 
-    private static async Task TemplateAsync(ServiceProvider provider, string documentType)
+    private static async Task TemplateAsync(
+        ServiceProvider provider,
+        string documentType,
+        bool requiresSignature = false)
     {
         IApprovalTemplateService templates = provider.CreateScope().ServiceProvider
             .GetRequiredService<IApprovalTemplateService>();
@@ -164,6 +169,7 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
                     Label = "Line manager approval",
                     Approver = ApproverResolver.LineManager,
                     Required = true,
+                    RequiresSignature = requiresSignature,
                 },
             ],
         });
@@ -206,6 +212,10 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
         Add(seed, employeeId, userId, "Dele");
 
         await seed.SaveChangesAsync();
+
+        // Kept so a test can act as them with their own Self scope, which is what an
+        // ordinary employee actually holds.
+        _outsiderId = employeeId;
 
         return userId;
     }
@@ -302,7 +312,7 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
 
         // On a fresh read too, not only in the answer to the start.
         ApprovalDto reread = (await As(provider, _managerUserId)
-            .GetAsync(raised.Approval.Id))!;
+            .GetAsync(raised.Approval.Id, Viewer.Everything))!;
 
         Assert.Equal("Onboarding review", reread.Title);
     }
@@ -568,6 +578,56 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
         Assert.Equal(ApprovalOutcome.NotTheApprover, refused.Outcome);
     }
 
+    // ── who may read one approval ───────────────────────────────────────────
+    //
+    // Three ways in, and the second is why this is not the employee-reach rule the
+    // other registers use: a chain exists precisely so that somebody outside your team
+    // can ask you to agree to something. Narrowing only by subject would hide a request
+    // from the person being asked to decide it, and their queue would list items they
+    // could not open.
+
+    [SkippableFact]
+    public async Task SomebodyWithNoPartInTheChainCannotReadIt()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        Guid outsiderUserId = await OutsiderAsync();
+
+        // Their own scope, which reaches nobody but themselves — not the subject, and
+        // they answer no step.
+        Assert.Null(await As(provider, outsiderUserId)
+            .GetAsync(raised.Id, Viewer.Themselves(_outsiderId)));
+    }
+
+    [SkippableFact]
+    public async Task TheApproverCanReadWhatTheyAreAskedToDecide()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        // Ada is the line manager the step resolved to, and the subject is Cara —
+        // outside a Self scope. Reaching it at all depends on being the approver.
+        Assert.NotNull(await As(provider, _managerUserId)
+            .GetAsync(raised.Id, Viewer.Themselves(_managerId)));
+    }
+
+    [SkippableFact]
+    public async Task TheSubmitterCanReadTheirOwnRequest()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        Assert.NotNull(await As(provider, _headUserId)
+            .GetAsync(raised.Id, Viewer.Themselves(_headId)));
+    }
+
     [SkippableFact]
     public async Task AnEmptyCommentIsRefused()
     {
@@ -607,6 +667,109 @@ public class SubmissionsRegisterTests(PostgresFixture fixture)
         Assert.Equal(
             ["submitted", "commented", "commented", "approved"],
             decided.Approval!.History.Select(entry => entry.Type).ToArray());
+    }
+
+    // ── steps that have to be signed ────────────────────────────────────────
+
+    // The requirement is the whole point of the feature, so the refusal is what is
+    // worth pinning: without it, a chain configured to need a signature would accept an
+    // unsigned approval and the record would be unable to say who put their name to it.
+    [SkippableFact]
+    public async Task ASignatureStepCannotBeApprovedWithoutOne()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync(requiresSignature: true);
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        Assert.True(Assert.Single(raised.Steps).RequiresSignature);
+
+        ApprovalResult refused = await As(provider, _managerUserId)
+            .DecideAsync(raised.Id, ApprovalStepStatus.Approved);
+
+        Assert.Equal(ApprovalOutcome.SignatureRequired, refused.Outcome);
+    }
+
+    [SkippableFact]
+    public async Task ASignatureStepIsApprovedWithOne()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync(requiresSignature: true);
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+        Guid signature = await SignatureAsync(provider);
+
+        ApprovalResult decided = await As(provider, _managerUserId)
+            .DecideAsync(raised.Id, ApprovalStepStatus.Approved, signatureFileId: signature);
+
+        Assert.True(decided.Succeeded, $"{decided.Outcome} / {decided.Reason}");
+        Assert.Equal(signature, Assert.Single(decided.Approval!.Steps).SignatureFileId);
+    }
+
+    // Refusing is not signing. A step that insisted on a signature to reject would be
+    // a step nobody could turn down.
+    [SkippableFact]
+    public async Task ASignatureStepCanStillBeRejectedWithoutOne()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync(requiresSignature: true);
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        ApprovalResult decided = await As(provider, _managerUserId)
+            .DecideAsync(raised.Id, ApprovalStepStatus.Rejected);
+
+        Assert.True(decided.Succeeded, $"{decided.Outcome} / {decided.Reason}");
+    }
+
+    // The default, so existing chains are unaffected by the field arriving.
+    [SkippableFact]
+    public async Task AnOrdinaryStepNeedsNoSignature()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        Assert.False(Assert.Single(raised.Steps).RequiresSignature);
+
+        Assert.True((await As(provider, _managerUserId)
+            .DecideAsync(raised.Id, ApprovalStepStatus.Approved)).Succeeded);
+    }
+
+    // A timeline names people, not mailboxes.
+    //
+    // The actor's name is resolved on read from the user id the event already stored,
+    // rather than written at the time. That is what makes it right for the entries
+    // already in the database — the field used to be filled with the signed-in user's
+    // email address, so every exchange recorded so far reads as "ben@acme.com said".
+    [SkippableFact]
+    public async Task TheHistoryNamesTheActorRatherThanTheirEmailAddress()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        ApprovalDto raised = (await StartAsync(provider, _headUserId)).Approval!;
+
+        Assert.True((await As(provider, _managerUserId)
+            .CommentAsync(raised.Id, "Can you send the receipt?")).Succeeded);
+
+        ApprovalResult decided = await As(provider, _managerUserId)
+            .DecideAsync(raised.Id, ApprovalStepStatus.Approved);
+
+        Assert.True(decided.Succeeded, $"{decided.Outcome} / {decided.Reason}");
+
+        string[] actors = [.. decided.Approval!.History.Select(entry => entry.ActorName ?? "")];
+
+        Assert.All(actors, actor =>
+        {
+            Assert.DoesNotContain("@", actor, StringComparison.Ordinal);
+            Assert.False(string.IsNullOrWhiteSpace(actor));
+        });
+
+        // Cara raised it, Ada commented and approved. Both are named, so the entries
+        // are attributed to the right person rather than merely to a non-email string.
+        Assert.Equal(["Cara Okafor", "Ada Okafor", "Ada Okafor"], actors);
     }
 
     // ── intake ──────────────────────────────────────────────────────────────

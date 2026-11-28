@@ -98,12 +98,14 @@ public class ReportExportTests(PostgresFixture fixture)
         ServiceProvider provider,
         string dataset,
         IReadOnlyDictionary<string, string?>? filters = null,
-        IReadOnlyList<string>? columns = null) =>
+        IReadOnlyList<string>? columns = null,
+        ReportExportFormat format = ReportExportFormat.Csv) =>
         Reports(provider).ExportAsync(new ReportExportRequest
         {
             Dataset = dataset,
             Filters = filters,
             Columns = columns,
+            Format = format,
         });
 
     // The queue runs inline in tests, so asking for the export finishes it. The service
@@ -363,6 +365,91 @@ public class ReportExportTests(PostgresFixture fixture)
         string[] lines = LinesOf(await ReadCsvAsync(provider, export.Job!.Id));
 
         Assert.Equal("\"Research, Design\",\"Ada Adeyemi\"", lines[1]);
+    }
+
+    // ── formats ─────────────────────────────────────────────────────────────
+
+    // The extension and the content type follow what was actually written. A .csv
+    // holding JSON opens as one long broken row, so this is worth pinning rather than
+    // trusting.
+    [SkippableFact]
+    public async Task AJsonExportIsNamedAndWrittenAsJson()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada", _engineeringId);
+        await HireAsync(provider, "Ben", _salesId);
+
+        ReportExportResult export = await ExportAsync(
+            provider,
+            "employees",
+            columns: ["fullName", "department"],
+            format: ReportExportFormat.Json);
+
+        ExportJobDto finished = (await Exports(provider).GetAsync(export.Job!.Id))!;
+
+        Assert.EndsWith(".json", finished.FileName!, StringComparison.Ordinal);
+        Assert.Equal(2, finished.RowCount);
+
+        string body = await ReadCsvAsync(provider, export.Job!.Id);
+
+        JsonElement[] rows = [.. JsonDocument.Parse(body).RootElement.EnumerateArray()];
+
+        Assert.Equal(2, rows.Length);
+
+        // Keyed by column key, not header: a JSON export is read by code, and a key is
+        // stable where wording is not.
+        Assert.Equal(
+            ["fullName", "department"],
+            rows[0].EnumerateObject().Select(property => property.Name).ToArray());
+
+        Assert.Contains(
+            "Ada Adeyemi",
+            rows.Select(row => row.GetProperty("fullName").GetString()));
+    }
+
+    // Cells stay strings in JSON, as they are everywhere else in reporting. Guessing
+    // types would make one column a number in one export and a string in the next,
+    // depending on whether a row happened to be empty.
+    [SkippableFact]
+    public async Task JsonCellsAreStringsAndEmptyOnesAreNull()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada", _engineeringId);
+
+        ReportExportResult export = await ExportAsync(
+            provider,
+            "employees",
+            columns: ["directReports", "salary"],
+            format: ReportExportFormat.Json);
+
+        JsonElement row = JsonDocument
+            .Parse(await ReadCsvAsync(provider, export.Job!.Id))
+            .RootElement[0];
+
+        Assert.Equal(JsonValueKind.String, row.GetProperty("directReports").ValueKind);
+        Assert.Equal("0", row.GetProperty("directReports").GetString());
+
+        // No contract on file, so no pay — null rather than "0", which would read as
+        // earning nothing.
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("salary").ValueKind);
+    }
+
+    [SkippableFact]
+    public async Task CsvIsStillTheDefault()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        await HireAsync(provider, "Ada", _engineeringId);
+
+        ReportExportResult export = await ExportAsync(provider, "employees");
+        ExportJobDto finished = (await Exports(provider).GetAsync(export.Job!.Id))!;
+
+        Assert.EndsWith(".csv", finished.FileName!, StringComparison.Ordinal);
     }
 
     // ── the scope round trip ────────────────────────────────────────────────

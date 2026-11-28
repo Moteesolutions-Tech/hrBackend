@@ -6,10 +6,13 @@ using Motee.Application.Employees;
 using Motee.Application.Leave;
 using Motee.Application.Organisation;
 using Motee.Application.Reports;
+using Motee.Domain.Attendance;
 using Motee.Domain.Authorization;
 using Motee.Domain.Contracts;
 using Motee.Domain.Employees;
+using Motee.Domain.Learning;
 using Motee.Domain.Organisation;
+using Motee.Domain.Performance;
 using Motee.Infrastructure.Identity;
 using Motee.Infrastructure.Persistence;
 using Motee.Tests.Alerts;
@@ -349,8 +352,8 @@ public class ReportServiceTests(PostgresFixture fixture)
 
         IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
 
-        Assert.Equal("Ada Adeyemi", row["employeeName"]);
-        Assert.Equal("Annual Leave", row["leaveType"]);
+        Assert.Equal("Ada Adeyemi", row["employee"]);
+        Assert.Equal("Annual Leave", row["type"]);
         Assert.Equal("Engineering", row["department"]);
 
         // ISO on the wire, so the value means one day whatever the reader's locale.
@@ -493,6 +496,184 @@ public class ReportServiceTests(PostgresFixture fixture)
 
         // Honest bucket rather than a blank slice in a region chart.
         Assert.Equal("Unspecified", byName["Dele Adeyemi"]);
+    }
+
+    // ── the datasets added for the reports screen ───────────────────────────
+    //
+    // The catalogue tests pin the keys and the dataset probe proves each provider runs.
+    // Neither catches a typo in a provider's switch, which returns null for that column
+    // and draws an empty chart — so each dataset gets one row read back.
+
+    [SkippableFact]
+    public async Task TheAttendanceReportReadsTheDaysRegister()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            seed.AttendanceRecords.Add(new AttendanceRecord
+            {
+                Id = Guid.NewGuid(),
+                TenantId = _tenantId,
+                EmployeeId = adaId,
+                Date = today,
+
+                // Status and hours are both derived from the clock rather than stored.
+                ClockInAt = new DateTimeOffset(today, new TimeOnly(9, 0), TimeSpan.Zero),
+                ClockOutAt = new DateTimeOffset(today, new TimeOnly(17, 30), TimeSpan.Zero),
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        ReportRunResult run = await RunAsync(provider, "attendance");
+
+        Assert.True(run.Succeeded, run.Outcome.ToString());
+
+        IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
+
+        Assert.Equal("Ada Adeyemi", row["employee"]);
+        Assert.Equal("Engineering", row["department"]);
+        Assert.Equal(today.ToString("yyyy-MM-dd"), row["date"]);
+
+        // Wall clock, not an instant: a column headed "Clock In" wants 09:00.
+        Assert.Equal("09:00", row["clockIn"]);
+        Assert.Equal("17:30", row["clockOut"]);
+        Assert.False(string.IsNullOrWhiteSpace(row["hours"]));
+        Assert.False(string.IsNullOrWhiteSpace(row["status"]));
+    }
+
+    [SkippableFact]
+    public async Task ThePerformanceReportReadsTheReviewRegister()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            seed.PerformanceReviews.Add(new PerformanceReview
+            {
+                Id = Guid.NewGuid(),
+                TenantId = _tenantId,
+                EmployeeId = adaId,
+                Period = "H1 2026",
+                Status = ReviewStatus.Completed,
+                DueDate = new DateOnly(2026, 6, 30),
+                SelfRating = 4,
+                ManagerRating = 3,
+                CalibratedRating = 4,
+                CompletedAt = new DateTimeOffset(2026, 6, 28, 10, 0, 0, TimeSpan.Zero),
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        ReportRunResult run = await RunAsync(provider, "performance");
+
+        Assert.True(run.Succeeded, run.Outcome.ToString());
+
+        IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
+
+        Assert.Equal("Ada Adeyemi", row["employee"]);
+        Assert.Equal("H1 2026", row["cycle"]);
+        Assert.Equal("4", row["self"]);
+        Assert.Equal("3", row["manager"]);
+        Assert.Equal("4", row["calibrated"]);
+        Assert.Equal("2026-06-28", row["completedAt"]);
+    }
+
+    // Empty, not "0". A rating nobody has given, averaged as zero, would drag a
+    // department's score down for being incomplete rather than poor.
+    [SkippableFact]
+    public async Task AnUngivenRatingIsEmptyRatherThanZero()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            seed.PerformanceReviews.Add(new PerformanceReview
+            {
+                Id = Guid.NewGuid(),
+                TenantId = _tenantId,
+                EmployeeId = adaId,
+                Period = "H1 2026",
+                Status = ReviewStatus.InProgress,
+                DueDate = new DateOnly(2026, 6, 30),
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        IReadOnlyDictionary<string, string?> row =
+            Assert.Single((await RunAsync(provider, "performance")).Table!.Rows.Items);
+
+        Assert.Equal(string.Empty, row["self"]);
+        Assert.Equal(string.Empty, row["manager"]);
+        Assert.Equal(string.Empty, row["calibrated"]);
+        Assert.Equal(string.Empty, row["completedAt"]);
+    }
+
+    [SkippableFact]
+    public async Task TheLearningReportReadsTheEnrolmentRegister()
+    {
+        Skip.If(fixture.SkipReason is not null, fixture.SkipReason);
+        await using ServiceProvider provider = await ArrangeAsync();
+
+        Guid adaId = await HireAsync(provider, "Ada", _engineeringId);
+        Guid courseId = Guid.NewGuid();
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            seed.Courses.Add(new Course
+            {
+                Id = courseId,
+                TenantId = _tenantId,
+                Title = "Fire safety",
+                Category = CourseCategory.Compliance,
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        await using (MoteeDbContext seed = fixture.CreateContext(_tenantId))
+        {
+            seed.CourseEnrollments.Add(new CourseEnrollment
+            {
+                Id = Guid.NewGuid(),
+                TenantId = _tenantId,
+                CourseId = courseId,
+                EmployeeId = adaId,
+                Status = EnrollmentStatus.InProgress,
+                Progress = 40,
+                EnrolledOn = new DateOnly(2026, 2, 1),
+            });
+
+            await seed.SaveChangesAsync();
+        }
+
+        ReportRunResult run = await RunAsync(provider, "learning");
+
+        Assert.True(run.Succeeded, run.Outcome.ToString());
+
+        IReadOnlyDictionary<string, string?> row = Assert.Single(run.Table!.Rows.Items);
+
+        Assert.Equal("Ada Adeyemi", row["employee"]);
+        Assert.Equal("Fire safety", row["course"]);
+
+        // The course's category, carried onto the enrolment so a completion-by-category
+        // chart needs no second call.
+        Assert.Equal("Compliance", row["category"]);
+        Assert.Equal("40", row["progress"]);
+        Assert.Equal("2026-02-01", row["enrolledAt"]);
     }
 
     // ── pay ─────────────────────────────────────────────────────────────────

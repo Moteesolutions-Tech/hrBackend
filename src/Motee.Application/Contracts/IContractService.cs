@@ -22,7 +22,17 @@ public interface IContractService
         Viewer viewer,
         CancellationToken cancellationToken = default);
 
-    Task<ContractDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // One contract, narrowed to what the viewer reaches — null when it is somebody
+    // they cannot see, which the endpoint answers as not found.
+    //
+    // The viewer is required here for the same reason as on the register, and the gap
+    // between the two was the sharper hole: closing the list left this open, so a
+    // contract came back to anybody holding the module permission who had the id, pay
+    // included. A guid is not an access rule.
+    Task<ContractDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     Task<ContractResult> CreateAsync(
         ContractRequest request,

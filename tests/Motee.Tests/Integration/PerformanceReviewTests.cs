@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
+using Motee.Domain.Authorization;
 using Motee.Application.Employees;
 using Motee.Application.Organisation;
 using Motee.Application.Performance;
@@ -128,7 +129,7 @@ public class PerformanceReviewTests(PostgresFixture fixture)
         await using ServiceProvider provider = await ArrangeAsync();
 
         PerformanceReviewDto review = (await Resolve<IPerformanceReviewService>(provider)
-            .GetAsync(await OpenAsync(provider)))!;
+            .GetAsync(await OpenAsync(provider), Viewer.Everything))!;
 
         Assert.Equal(ReviewStatus.NotStarted, review.Status);
         Assert.Equal("Cara Okafor", review.ReviewerName);
@@ -372,7 +373,7 @@ public class PerformanceReviewTests(PostgresFixture fixture)
             DueDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-5),
         })).Review!.Id;
 
-        Assert.True((await reviews.GetAsync(id))!.IsOverdue);
+        Assert.True((await reviews.GetAsync(id, Viewer.Everything))!.IsOverdue);
 
         await reviews.RecordManagerReviewAsync(
             id, new ManagerReviewRequest { ManagerRating = 3 });

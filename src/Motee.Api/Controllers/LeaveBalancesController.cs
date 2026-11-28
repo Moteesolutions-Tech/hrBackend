@@ -39,7 +39,8 @@ public class LeaveBalancesController(
         // Non-null: the filter above turned the alternative away.
         Guid employeeId = (await currentEmployee.IdAsync(cancellationToken))!.Value;
 
-        return Ok(await balances.ForEmployeeAsync(employeeId, asAt, cancellationToken));
+        return Ok(await balances.ForEmployeeAsync(
+            Viewer.Themselves(employeeId), employeeId, asAt, cancellationToken));
     }
 
     [HttpGet("{employeeId:guid}")]
@@ -48,8 +49,19 @@ public class LeaveBalancesController(
     public async Task<IActionResult> ForEmployee(
         Guid employeeId,
         [FromQuery] DateOnly? asAt,
-        CancellationToken cancellationToken) =>
-        Ok(await balances.ForEmployeeAsync(employeeId, asAt, cancellationToken));
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<LeaveBalanceDto>? held = await balances.ForEmployeeAsync(
+            Caller(), employeeId, asAt, cancellationToken);
+
+        // Not found for somebody out of reach, the same answer as an employee who does
+        // not exist: telling somebody an id is real but none of their business is
+        // itself a fact about the directory.
+        return held is null
+            ? Failure<IReadOnlyList<LeaveBalanceDto>>(
+                MoteeStatusCodes.NotFound, "Employee not found.")
+            : Ok(held);
+    }
 
     // Granting or docking days by hand. Recorded as its own row with a reason, so "why do
     // I have 23 days when the policy says 25" stays answerable.
@@ -72,7 +84,7 @@ public class LeaveBalancesController(
     // the reminder to book leave.
     [HttpGet("year-end/preview")]
     [ProducesResponseType<LeaveYearEndResult>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> PreviewYearEnd(
         [FromQuery] DateOnly? yearContaining,
         CancellationToken cancellationToken) =>

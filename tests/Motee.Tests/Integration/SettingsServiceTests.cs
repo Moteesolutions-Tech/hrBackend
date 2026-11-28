@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
+using Motee.Domain.Authorization;
 using Motee.Application.Leave;
 using Motee.Application.Notifications;
 using Motee.Application.Organisation;
@@ -589,7 +590,8 @@ public class SettingsServiceTests(PostgresFixture fixture)
         Guid employeeId = await HireAsync(provider);
 
         IReadOnlyList<LeaveBalanceDto> balances = await Resolve<ILeaveBalanceService>(provider)
-            .ForEmployeeAsync(employeeId);
+            .ForEmployeeAsync(Viewer.Everything, employeeId)
+            ?? throw new InvalidOperationException("The employee was out of reach.");
 
         HolidayYearCycle active = Active(await Settings(provider).HolidayYearsAsync());
 

@@ -1,5 +1,6 @@
 using Motee.Application.Common;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 
 namespace Motee.Application.Approvals;
 
@@ -69,13 +70,25 @@ public interface IApprovalService
         RaiseApprovalRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<ApprovalDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // One approval, or null when this viewer may not read it.
+    //
+    // Three ways in: they raised it, they are asked to decide it, or the person it is
+    // about is within their reach. The second is why this is not the plain
+    // employee-reach rule — a chain exists so that somebody outside your team can ask
+    // you to agree to something, and narrowing only by subject would hide a request
+    // from the person being asked.
+    Task<ApprovalDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     // Everything running against one record, so a module can show "this onboarding is
-    // waiting on the department head" without knowing the engine's tables.
+    // waiting on the department head" without knowing the engine's tables. Narrowed by
+    // the same rule as GetAsync.
     Task<IReadOnlyList<ApprovalDto>> ForSubjectAsync(
         string subjectType,
         Guid subjectId,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     // The same question for a page of records, in one round trip. Any module listing
@@ -197,6 +210,12 @@ public enum ApprovalOutcome
     // approval attachment in this tenant. Refused rather than dropped: silently
     // discarding what somebody attached is how a fit note goes missing.
     AttachmentNotAllowed,
+
+    // The step asks for a drawn signature and the approval arrived without one.
+    // Refused rather than approved unsigned: the whole point of a signature step is
+    // that the record can say who put their name to it, and an approval with the
+    // signature quietly missing is the one case that makes the requirement worthless.
+    SignatureRequired,
 }
 
 public sealed record ApprovalTemplateRequest
@@ -227,6 +246,8 @@ public sealed record ApprovalTemplateStepRequest
     public Guid? RoleId { get; init; }
 
     public bool Required { get; init; } = true;
+
+    public bool RequiresSignature { get; init; }
 }
 
 // What the register can be narrowed to. Every filter is optional, and the unfiltered
@@ -414,6 +435,8 @@ public sealed record ApprovalTemplateStepDto
     public string? RoleName { get; init; }
 
     public required bool Required { get; init; }
+
+    public required bool RequiresSignature { get; init; }
 }
 
 public sealed record ApprovalDto
@@ -500,6 +523,10 @@ public sealed record ApprovalStepDto
     public required ApproverResolver Approver { get; init; }
 
     public required bool Required { get; init; }
+
+    // Whether approving this step needs a drawn signature. Snapshotted from the
+    // template at submission, so it cannot change under an approval in flight.
+    public required bool RequiresSignature { get; init; }
 
     public Guid? ResolvedEmployeeId { get; init; }
 

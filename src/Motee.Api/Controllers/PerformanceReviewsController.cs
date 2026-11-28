@@ -65,7 +65,7 @@ public class PerformanceReviewsController(IPerformanceReviewService reviews) : A
     [RequiresPermission(Module, PermissionAction.View)]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
-        PerformanceReviewDto? review = await reviews.GetAsync(id, cancellationToken);
+        PerformanceReviewDto? review = await reviews.GetAsync(id, Caller(), cancellationToken);
 
         return review is null
             ? Failure<PerformanceReviewDto>(MoteeStatusCodes.NotFound, "Review not found.")

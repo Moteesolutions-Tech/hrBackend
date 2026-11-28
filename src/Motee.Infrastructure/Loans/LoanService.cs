@@ -4,6 +4,7 @@ using Motee.Application.Common;
 using Motee.Application.Loans;
 using Motee.Application.Tenancy;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Domain.Common;
 using Motee.Domain.Employees;
 using Motee.Domain.Loans;
@@ -543,7 +544,9 @@ internal sealed class LoanService(
 
         foreach (Guid chainId in chainIds)
         {
-            ApprovalDto? chain = await approvals.GetAsync(chainId, cancellationToken);
+            // The chain attached to a loan this caller already reached.
+        ApprovalDto? chain = await approvals.GetAsync(
+            chainId, Viewer.Everything, cancellationToken);
 
             if (chain is not null)
             {

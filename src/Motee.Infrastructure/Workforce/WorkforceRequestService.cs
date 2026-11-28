@@ -5,6 +5,7 @@ using Motee.Application.Recruitment;
 using Motee.Application.Tenancy;
 using Motee.Application.Workforce;
 using Motee.Domain.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Domain.Organisation;
 using Motee.Domain.Recruitment;
 using Motee.Domain.Workforce;
@@ -410,7 +411,9 @@ internal sealed class WorkforceRequestService(
             return null;
         }
 
-        return (await approvals.GetAsync(instanceId, cancellationToken))?.Status;
+        // The chain attached to a request this caller already reached.
+        return (await approvals.GetAsync(
+            instanceId, Viewer.Everything, cancellationToken))?.Status;
     }
 
     private async Task<bool> MissingDepartmentAsync(
@@ -453,7 +456,8 @@ internal sealed class WorkforceRequestService(
                 continue;
             }
 
-            if (await approvals.GetAsync(instanceId, cancellationToken) is ApprovalDto theirs)
+            if (await approvals.GetAsync(instanceId, Viewer.Everything, cancellationToken)
+            is ApprovalDto theirs)
             {
                 chains[row.Id] = theirs;
             }

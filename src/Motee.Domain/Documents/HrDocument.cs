@@ -10,6 +10,13 @@ public enum DocumentCategory
     Form,
     Certificate,
     Report,
+
+    // Passports, right-to-work evidence, proof of address, driving licences. Its own
+    // category because this is the bulk of what employees upload about themselves, and
+    // filing it under Other loses the one thing that makes it findable — and makes a
+    // retention rule impossible to write.
+    Identity,
+
     Other,
 }
 

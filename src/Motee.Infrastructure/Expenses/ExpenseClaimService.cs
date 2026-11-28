@@ -50,13 +50,21 @@ internal sealed class ExpenseClaimService(
 
     public async Task<ExpenseClaimDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         ExpenseClaim? claim = await dbContext.ExpenseClaims
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return claim is null ? null : (await DescribeAsync([claim], cancellationToken))[0];
+        // Out of reach reads as not found. See IContractService.GetAsync.
+        if (claim is null
+            || !await reach.ReachesAsync(viewer, claim.EmployeeId, cancellationToken))
+        {
+            return null;
+        }
+
+        return (await DescribeAsync([claim], cancellationToken))[0];
     }
 
     public async Task<ExpenseResult> CreateAsync(
@@ -540,7 +548,9 @@ internal sealed class ExpenseClaimService(
         foreach (ExpenseClaim claim in claims)
         {
             ApprovalDto? review = claim.ApprovalInstanceId is Guid instanceId
-                ? await approvals.GetAsync(instanceId, cancellationToken)
+                // The chain attached to a claim this caller already reached: the claim was
+            // narrowed on the way in, so its own approval is not a second decision.
+            ? await approvals.GetAsync(instanceId, Viewer.Everything, cancellationToken)
                 : null;
 
             described.Add(new ExpenseClaimDto

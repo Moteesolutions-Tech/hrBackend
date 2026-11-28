@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Approvals;
+using Motee.Domain.Authorization;
 using Motee.Application.Auth;
 using Motee.Application.Common;
 using Motee.Application.Leave;
@@ -357,7 +358,7 @@ public class LeaveRequestTests(PostgresFixture fixture)
         Assert.True(decided.Succeeded, decided.Outcome.ToString());
 
         LeaveRequestDto? after = await Resolve<ILeaveRequestService>(provider)
-            .GetAsync(booked.Request.Id);
+            .GetAsync(booked.Request.Id, Viewer.Everything);
 
         Assert.Equal(LeaveRequestStatus.Rejected, after!.Status);
 

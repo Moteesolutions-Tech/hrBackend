@@ -47,16 +47,19 @@ public class LearningController(ILearningService learning) : ApiControllerBase
             : Ok(found);
     }
 
+    // Company-wide figures, so more than your own records. Named here rather than
+    // narrowed: an aggregate still counts everybody, which is the lower-severity half
+    // of the same gap the dashboards have and is tracked with it.
     [HttpGet("summary")]
     [ProducesResponseType<LearningSummaryDto>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> Summary(CancellationToken cancellationToken) =>
         Ok(await learning.SummaryAsync(cancellationToken));
 
     // Where the company is on the training it has made compulsory.
     [HttpGet("compliance")]
     [ProducesResponseType<MandatoryTally>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> Compliance(CancellationToken cancellationToken) =>
         Ok(await learning.ComplianceAsync(cancellationToken));
 
@@ -118,13 +121,16 @@ public class LearningController(ILearningService learning) : ApiControllerBase
 
     // ── who is on a course ──────────────────────────────────────────────────
 
+    // Who is on a course names people and how far they have got, so this is the
+    // organisation-wide register rather than a catalogue: more than your own records,
+    // and narrowed to what the caller reaches. Their own enrolments are learning/mine.
     [HttpGet("enrollments")]
     [ProducesResponseType<PagedResult<EnrollmentDto>>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> Enrollments(
         [FromQuery] EnrollmentQuery query,
         CancellationToken cancellationToken) =>
-        Ok(await learning.EnrollmentsAsync(query, cancellationToken));
+        Ok(await learning.EnrollmentsAsync(query, Caller(), cancellationToken));
 
     // Several people at once, which is how the assign dialog works. Somebody
     // already on the course is skipped rather than failing the whole batch.

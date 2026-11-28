@@ -87,6 +87,10 @@ public sealed record AssetQuery : PagedQuery
 
     public AssetStatus? Status { get; init; }
 
+    // Narrowing by physical state: "show me everything damaged" is the question the
+    // replacement budget starts from.
+    public AssetCondition? Condition { get; init; }
+
     public Guid? AssignedToEmployeeId { get; init; }
 }
 
@@ -101,6 +105,12 @@ public sealed record AssetRequest
     public string? SerialNumber { get; init; }
 
     public string? Notes { get; init; }
+
+    // The state it is in, and what it cost. Both optional: an asset whose condition
+    // nobody has judged, or which was never priced, is still an asset to record.
+    public AssetCondition? Condition { get; init; }
+
+    public decimal? Value { get; init; }
 
     // Only read when the asset is created through the employee wizard, where the
     // holder is the person being onboarded.
@@ -199,6 +209,10 @@ public sealed record AssetDto
     public string? Category { get; init; }
 
     public string? SerialNumber { get; init; }
+
+    public AssetCondition? Condition { get; init; }
+
+    public decimal? Value { get; init; }
 
     public Guid? AssignedToEmployeeId { get; init; }
 

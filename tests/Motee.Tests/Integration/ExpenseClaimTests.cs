@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Motee.Application.Auth;
+using Motee.Domain.Authorization;
 using Motee.Application.Common;
 using Motee.Application.Employees;
 using Motee.Application.Expenses;
@@ -199,7 +200,8 @@ public class ExpenseClaimTests(PostgresFixture fixture)
 
         Assert.Equal(
             1234.5678m,
-            (await Resolve<IExpenseClaimService>(provider).GetAsync(id))!.Amount);
+            (await Resolve<IExpenseClaimService>(provider)
+                .GetAsync(id, Viewer.Everything))!.Amount);
     }
 
     [SkippableTheory]

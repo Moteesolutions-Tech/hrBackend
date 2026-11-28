@@ -20,7 +20,11 @@ public interface IExpenseClaimService
         ExpenseQuery query,
         CancellationToken cancellationToken = default);
 
-    Task<ExpenseClaimDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // Narrowed to what the viewer reaches. See IContractService.GetAsync.
+    Task<ExpenseClaimDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     Task<ExpenseResult> CreateAsync(
         ExpenseClaimRequest request,

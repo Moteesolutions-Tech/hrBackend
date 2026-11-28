@@ -439,6 +439,8 @@ internal sealed class AssetService(
         asset.Category = Trimmed(request.Category);
         asset.SerialNumber = Trimmed(request.SerialNumber);
         asset.Notes = Trimmed(request.Notes);
+        asset.Condition = request.Condition;
+        asset.Value = request.Value;
     }
 
     private IQueryable<Asset> Filter(AssetQuery query)
@@ -453,6 +455,11 @@ internal sealed class AssetService(
         if (query.Status is AssetStatus status)
         {
             assets = assets.Where(asset => asset.Status == status);
+        }
+
+        if (query.Condition is AssetCondition condition)
+        {
+            assets = assets.Where(asset => asset.Condition == condition);
         }
 
         if (!string.IsNullOrWhiteSpace(query.Category))
@@ -510,6 +517,8 @@ internal sealed class AssetService(
                 Name = asset.Name,
                 Category = asset.Category,
                 SerialNumber = asset.SerialNumber,
+                Condition = asset.Condition,
+                Value = asset.Value,
                 AssignedToEmployeeId = asset.AssignedToEmployeeId,
                 AssignedToName = dbContext.Employees
                     .Where(employee => employee.Id == asset.AssignedToEmployeeId)

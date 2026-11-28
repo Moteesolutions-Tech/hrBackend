@@ -301,6 +301,41 @@ public class ReportCatalogueTests
             StringComparer.Ordinal));
     }
 
+    // Every dataset's keys are pinned to the row shape the reports screen reads, for
+    // the same reason the employee list above is: the screen computes its charts in the
+    // browser from these keys, so a rename here does not fail — it renders an empty
+    // graph, which nobody notices until somebody trusts it.
+    //
+    // Only the fields the screen actually reads are listed. A dataset may offer more.
+    [Theory]
+    [InlineData("leave", "employee type status startDate endDate days")]
+    [InlineData("attendance", "date employee department status clockIn clockOut hours")]
+    [InlineData("assets", "assetTag name category condition status assignedTo value")]
+    [InlineData("performance", "employee cycle self manager calibrated completedAt")]
+    [InlineData("learning", "employee course category status progress enrolledAt")]
+    public void ADatasetCarriesTheKeysTheReportsScreenReads(string key, string needed)
+    {
+        ReportDataset dataset = ReportCatalogue.Find(key)
+            ?? throw new InvalidOperationException($"No dataset '{key}'.");
+
+        Assert.All(needed.Split(' '), column => Assert.Contains(
+            column,
+            dataset.Columns.Select(declared => declared.Key),
+            StringComparer.Ordinal));
+    }
+
+    // The screen groups reports under the group this names, so a dataset in the wrong
+    // one lands on the wrong tab. Leave was Operations and belongs with the workforce.
+    [Theory]
+    [InlineData("employees", "People")]
+    [InlineData("leave", "People")]
+    [InlineData("attendance", "People")]
+    [InlineData("assets", "Operations")]
+    [InlineData("performance", "Talent")]
+    [InlineData("learning", "Talent")]
+    public void ADatasetIsInTheGroupTheScreenExpects(string key, string group) =>
+        Assert.Equal(group, ReportCatalogue.Find(key)!.Group);
+
     // ── columns with their own permission ───────────────────────────────────
 
     // Pay is the case that makes a per-column gate necessary. The frontend declares an

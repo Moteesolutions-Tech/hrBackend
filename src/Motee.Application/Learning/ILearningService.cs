@@ -1,4 +1,5 @@
 using Motee.Application.Common;
+using Motee.Domain.Authorization;
 using Motee.Domain.Learning;
 
 namespace Motee.Application.Learning;
@@ -47,8 +48,13 @@ public interface ILearningService
 
     // ── who is on a course ──────────────────────────────────────────────────
 
+    // Who is on a course is personal: it names people and how far they have got. So
+    // this takes a viewer and narrows by it, like the other registers — unlike the
+    // course catalogue above, which is the company's own list of what it offers and is
+    // readable by anybody who might enrol.
     Task<PagedResult<EnrollmentDto>> EnrollmentsAsync(
         EnrollmentQuery query,
+        Viewer viewer,
         CancellationToken cancellationToken = default);
 
     // Several people at once, which is how the assign dialog works. Somebody

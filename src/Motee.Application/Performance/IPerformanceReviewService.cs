@@ -39,7 +39,11 @@ public interface IPerformanceReviewService
         Viewer viewer,
         CancellationToken cancellationToken = default);
 
-    Task<PerformanceReviewDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    // Narrowed to what the viewer reaches. See IContractService.GetAsync.
+    Task<PerformanceReviewDto?> GetAsync(
+        Guid id,
+        Viewer viewer,
+        CancellationToken cancellationToken = default);
 
     Task<ReviewResult> OpenAsync(
         OpenReviewRequest request,

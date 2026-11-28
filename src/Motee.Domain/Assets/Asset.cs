@@ -17,6 +17,19 @@ public enum AssetStatus
     Retired,
 }
 
+// The physical state of an asset, as judged by whoever last looked at it. Ordered best
+// to worst so a report can sort by it and a chart can colour by severity.
+public enum AssetCondition
+{
+    New,
+    Good,
+    Fair,
+
+    // Works, but needs repair or replacing. Separate from Lost and Retired, which are
+    // statuses rather than conditions: a damaged laptop is still assigned to somebody.
+    Damaged,
+}
+
 public class Asset : ITenantScoped
 {
     public Guid Id { get; set; }
@@ -41,6 +54,20 @@ public class Asset : ITenantScoped
     public DateOnly? AssignedDate { get; set; }
 
     public string? Notes { get; set; }
+
+    // What state the thing is in, as somebody looked at it and judged. Distinct from
+    // Status, which is where the asset is in its lifecycle: a laptop can be Assigned
+    // and Damaged at the same time, and the two answer different questions — one for
+    // "who has it", one for "what do we need to replace".
+    //
+    // A fixed list rather than free text, unlike Category: the point of this field is
+    // to be counted, and "Fair" / "fair" / "OK" in one column cannot be.
+    public AssetCondition? Condition { get; set; }
+
+    // What it cost, for the replacement budget. Nullable because an asset inherited,
+    // donated or simply never priced is a real asset — and a zero would be read as
+    // free rather than unknown.
+    public decimal? Value { get; set; }
 
     public AssetStatus Status { get; set; } = AssetStatus.Available;
 

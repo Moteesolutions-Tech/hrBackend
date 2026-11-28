@@ -52,16 +52,24 @@ internal sealed class ExportRunner(
             job.Status = ExportStatus.Running;
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            (string csv, int rows, string subject) = await BuildAsync(job, cancellationToken);
+            Built built = await BuildAsync(job, cancellationToken);
 
             DateTimeOffset now = timeProvider.GetUtcNow();
-            string fileName = $"{subject}-{now:yyyy-MM-dd-HHmm}.csv";
+
+            // The extension and the content type come from what was actually written,
+            // not from a constant: a .csv holding JSON opens as one long broken row.
+            string fileName =
+                $"{built.Subject}-{now:yyyy-MM-dd-HHmm}.{Extension(built.Format)}";
+
             string key = $"exports/{job.TenantId:N}/{job.Id:N}/{fileName}";
 
-            await using (MemoryStream content = new(Encoding.UTF8.GetBytes(csv)))
+            await using (MemoryStream content = new(Encoding.UTF8.GetBytes(built.Body)))
             {
-                await storage.SaveAsync(key, content, "text/csv", cancellationToken);
+                await storage.SaveAsync(
+                    key, content, ContentType(built.Format), cancellationToken);
             }
+
+            int rows = built.Rows;
 
             job.Status = ExportStatus.Completed;
             job.RowCount = rows;
@@ -96,14 +104,33 @@ internal sealed class ExportRunner(
     // the two filter shapes are not interchangeable: deserialising a report job as an
     // employee one would leave Scope at its default rather than failing, and an export
     // with the wrong scope is the one failure that must not be quiet.
-    private async Task<(string Csv, int Rows, string Subject)> BuildAsync(
+    private async Task<Built> BuildAsync(
         ExportJob job,
         CancellationToken cancellationToken) =>
         job.Kind.StartsWith(ExportService.ReportKindPrefix, StringComparison.Ordinal)
             ? await BuildReportAsync(job, cancellationToken)
             : await BuildEmployeesAsync(job, cancellationToken);
 
-    private async Task<(string Csv, int Rows, string Subject)> BuildEmployeesAsync(
+    // One finished export: the bytes, how many rows went into them, what to call the
+    // file and which format it actually is.
+    private sealed record Built
+    {
+        public required string Body { get; init; }
+
+        public required int Rows { get; init; }
+
+        public required string Subject { get; init; }
+
+        public ReportExportFormat Format { get; init; } = ReportExportFormat.Csv;
+    }
+
+    private static string Extension(ReportExportFormat format) =>
+        format == ReportExportFormat.Json ? "json" : "csv";
+
+    private static string ContentType(ReportExportFormat format) =>
+        format == ReportExportFormat.Json ? "application/json" : "text/csv";
+
+    private async Task<Built> BuildEmployeesAsync(
         ExportJob job,
         CancellationToken cancellationToken)
     {
@@ -112,7 +139,9 @@ internal sealed class ExportRunner(
 
         (string csv, int rows) = await BuildCsvAsync(filters, cancellationToken);
 
-        return (csv, rows, ExportService.EmployeesKind);
+        // The employee export predates the format option and has no column catalogue
+        // behind it, so it stays CSV.
+        return new Built { Body = csv, Rows = rows, Subject = ExportService.EmployeesKind };
     }
 
     // One dataset at a time through the same provider the on-screen report reads, so a
@@ -120,7 +149,7 @@ internal sealed class ExportRunner(
     //
     // The scope comes off the job rather than from a permission check: there is no user
     // here to check. See ReportExportFilters.
-    private async Task<(string Csv, int Rows, string Subject)> BuildReportAsync(
+    private async Task<Built> BuildReportAsync(
         ExportJob job,
         CancellationToken cancellationToken)
     {
@@ -145,11 +174,12 @@ internal sealed class ExportRunner(
         // exporting at 23:30 UTC is already on tomorrow.
         DateOnly asOf = await TodayAsync(job.TenantId, cancellationToken);
 
-        StringBuilder csv = new();
-        csv.Append(ReportCsvWriter.Header(columns));
+        // Collected once, then written in whichever shape was asked for. The paging is
+        // the expensive part and it is the same either way, so the format is a choice
+        // about the last step rather than two readers.
+        List<IReadOnlyDictionary<string, string?>> all = [];
 
         int page = 1;
-        int rows = 0;
 
         while (true)
         {
@@ -162,11 +192,7 @@ internal sealed class ExportRunner(
                 asOf,
                 cancellationToken);
 
-            foreach (IReadOnlyDictionary<string, string?> row in result.Items)
-            {
-                csv.Append(ReportCsvWriter.Row(row, columns));
-                rows++;
-            }
+            all.AddRange(result.Items);
 
             if (!result.HasNextPage)
             {
@@ -176,8 +202,47 @@ internal sealed class ExportRunner(
             page++;
         }
 
-        return (csv.ToString(), rows, dataset.Key);
+        return new Built
+        {
+            Body = filters.Format == ReportExportFormat.Json
+                ? Json(all, columns)
+                : Csv(all, columns),
+            Rows = all.Count,
+            Subject = dataset.Key,
+            Format = filters.Format,
+        };
     }
+
+    private static string Csv(
+        IReadOnlyList<IReadOnlyDictionary<string, string?>> rows,
+        IReadOnlyList<ReportColumn> columns)
+    {
+        StringBuilder csv = new();
+
+        csv.Append(ReportCsvWriter.Header(columns));
+
+        foreach (IReadOnlyDictionary<string, string?> row in rows)
+        {
+            csv.Append(ReportCsvWriter.Row(row, columns));
+        }
+
+        return csv.ToString();
+    }
+
+    // One array, a record per row, keyed by the column key rather than its header: a
+    // JSON export is read by code, and a key is stable where a header is wording.
+    //
+    // Cells stay strings, as they are everywhere else in reporting. Guessing types here
+    // would make the same column a number in one export and a string in the next,
+    // depending on whether a row happened to be empty.
+    private static string Json(
+        IReadOnlyList<IReadOnlyDictionary<string, string?>> rows,
+        IReadOnlyList<ReportColumn> columns) =>
+        JsonSerializer.Serialize(
+            rows.Select(row => columns.ToDictionary(
+                column => column.Key,
+                column => row.GetValueOrDefault(column.Key))),
+            SerializerOptions);
 
     // By id, because tenants are not themselves tenant-scoped and there is no request
     // here to make one ambient for this read.

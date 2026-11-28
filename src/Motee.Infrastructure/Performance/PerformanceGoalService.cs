@@ -75,13 +75,21 @@ internal sealed class PerformanceGoalService(
 
     public async Task<PerformanceGoalDto?> GetAsync(
         Guid id,
+        Viewer viewer,
         CancellationToken cancellationToken = default)
     {
         PerformanceGoal? goal = await dbContext.PerformanceGoals
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
 
-        return goal is null ? null : (await DescribeAsync([goal], cancellationToken))[0];
+        // Out of reach reads as not found. See IContractService.GetAsync.
+        if (goal is null
+            || !await reach.ReachesAsync(viewer, goal.EmployeeId, cancellationToken))
+        {
+            return null;
+        }
+
+        return (await DescribeAsync([goal], cancellationToken))[0];
     }
 
     public async Task<GoalResult> CreateMineAsync(

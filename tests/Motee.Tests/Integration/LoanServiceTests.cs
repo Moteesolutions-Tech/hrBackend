@@ -212,7 +212,7 @@ public class LoanServiceTests(PostgresFixture fixture)
         for (int round = 0; round < 6; round++)
         {
             ApprovalDto? chain = await Resolve<IApprovalService>(provider)
-                .GetAsync(approvalInstanceId);
+                .GetAsync(approvalInstanceId, Viewer.Everything);
 
             Assert.NotNull(chain);
 

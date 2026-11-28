@@ -119,7 +119,7 @@ public class AttendanceController(IAttendanceService attendance) : ApiController
     // cannot disagree.
     [HttpGet("summary")]
     [ProducesResponseType<AttendanceSummaryDto>(StatusCodes.Status200OK)]
-    [RequiresPermission(Module, PermissionAction.View)]
+    [RequiresPermission(Module, PermissionAction.View, MinimumScope = DataScopeKind.DirectReports)]
     public async Task<IActionResult> Summary(
         [FromQuery] AttendanceSummaryQuery query,
         CancellationToken cancellationToken) =>
